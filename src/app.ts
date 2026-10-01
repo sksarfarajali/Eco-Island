@@ -56,7 +56,8 @@ export class App {
     });
     window.addEventListener('pagehide', () => void this.saveNow());
     setInterval(() => void this.saveNow(), AUTOSAVE_MS);
-    setInterval(() => this.playing && this.ui.refreshHud(), 1000);
+    // keep the HUD clock ticking (without touching open panels)
+    setInterval(() => this.playing && this.ui.refreshHud(false), 1000);
   }
 
   async start(): Promise<void> {

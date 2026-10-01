@@ -362,16 +362,23 @@ export class UI {
     this.hud.hidden = true;
   }
 
-  /** Refresh at most once per frame. */
-  refreshHud(): void {
+  /**
+   * Refresh at most once per frame. Open panels are only refreshed when game state changed,
+   * not on the once-a-second clock tick.
+   */
+  refreshHud(panels = true): void {
+    this.panelsQueued ||= panels;
     if (this.hudQueued) return;
     this.hudQueued = true;
     requestAnimationFrame(() => {
       this.hudQueued = false;
       this.renderHud();
-      if (this.panelId && this.panelId !== 'settings') this.renderPanel();
+      if (this.panelsQueued && this.panelId && this.panelId !== 'settings') this.renderPanel();
+      this.panelsQueued = false;
     });
   }
+
+  private panelsQueued = false;
 
   private renderHud(): void {
     const g = this.game;
@@ -380,11 +387,18 @@ export class UI {
     const xp = levelProgress(s.player.xp, PLAYER_XP_LEVELS);
     const hm = levelProgress(s.island.harmony, ISLAND_HARMONY_LEVELS);
     const corruption = s.island.corruption.forest;
-    clear(this.hudStatus);
-    this.hudStatus.append(
-      h('div', { class: 'hud-line' },
-        h('strong', {}, t(`zone.${this.zone}`)),
-        h('span', { class: 'muted' }, `${t('hud.day', { day: g.day })} · ${g.timeLabel()}`)),
+    // The header (zone + clock) is persistent; only its text changes, so the clock never redraws the box.
+    if (!this.hudZone) {
+      this.hudZone = h('strong', {});
+      this.hudClock = h('span', { class: 'muted' });
+      this.hudBody = h('div', {});
+      this.hudStatus.append(h('div', { class: 'hud-line' }, this.hudZone, this.hudClock), this.hudBody);
+    }
+    const zone = t(`zone.${this.zone}`);
+    const clock = `${t('hud.day', { day: g.day })} · ${g.timeLabel()}`;
+    if (this.hudZone.textContent !== zone) this.hudZone.textContent = zone;
+    if (this.hudClock!.textContent !== clock) this.hudClock!.textContent = clock;
+    const body = h('div', {},
       h('div', { class: 'hearts', role: 'img', 'aria-label': t('hud.health', { hp: s.player.health, max: g.maxHealth() }), title: t('hud.health', { hp: s.player.health, max: g.maxHealth() }) },
         Array.from({ length: g.maxHealth() }, (_, i) => h('span', { class: i < s.player.health ? 'heart' : 'heart empty' }, i < s.player.health ? '❤️' : '🤍'))),
       h('div', { class: 'hud-line' },
@@ -396,7 +410,13 @@ export class UI {
       h('div', { class: 'hud-meter', title: t('hud.island_level_hint') },
         h('span', {}, `🌿 ${t('hud.island_level', { level: s.island.level })}`), bar(hm.pct, 'harmony')),
     );
+    // Only touch the DOM when something visible actually changed.
+    if (body.innerHTML !== this.hudBody!.innerHTML) this.hudBody!.replaceChildren(...body.childNodes);
   }
+
+  private hudZone: HTMLElement | null = null;
+  private hudClock: HTMLElement | null = null;
+  private hudBody: HTMLElement | null = null;
 
   setZone(zone: ZoneId): void {
     this.zone = zone;
@@ -638,17 +658,20 @@ export class UI {
   private renderPanel(): void {
     const id = this.panelId;
     if (!id) return;
-    const scroll = this.panelEl?.querySelector('.panel-body')?.scrollTop ?? 0;
-    this.panelEl?.remove();
     const body = this.panelBody(id);
+    // Already open: update the contents in place (no re-animation), and only if something changed.
+    const open = this.panelEl?.querySelector(`.panel-${id} .panel-body`);
+    if (open) {
+      if (open.firstElementChild?.outerHTML !== body.outerHTML) open.replaceChildren(body);
+      return;
+    }
+    this.panelEl?.remove();
     this.panelEl = h('div', { class: 'modal-wrap', onclick: (e: Event) => { if (e.target === this.panelEl) this.closePanel(); } },
       h('div', { class: `panel panel-${id}`, role: 'dialog', 'aria-label': t(`panel.${id}`) },
         h('header', {}, h('h2', {}, t(`panel.${id}`)), h('button', { class: 'close', 'aria-label': t('common.close'), onclick: () => this.closePanel() }, '✕')),
         h('div', { class: 'panel-body' }, body),
       ));
     this.root.append(this.panelEl);
-    const b = this.panelEl.querySelector('.panel-body');
-    if (b) b.scrollTop = scroll;
   }
 
   private panelBody(id: PanelId): HTMLElement {

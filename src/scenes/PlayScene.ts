@@ -323,7 +323,8 @@ export abstract class PlayScene extends Phaser.Scene {
     this.dodgeUntil = this.time.now + DODGE_MS;
     this.dodgeReadyAt = this.time.now + DODGE_COOLDOWN_MS;
     this.game_.events.emit('sfx', 'dodge');
-    if (!this.settings.reducedMotion) this.tweens.add({ targets: this.novaSprite, alpha: 0.4, duration: DODGE_MS / 2, yoyo: true });
+    // a quick dash with dust behind Nova (no fading in and out)
+    this.burst(this.player.x, this.player.y, 0xd9c9a8, 5);
   }
 
   setBlocking(on: boolean): void {
@@ -563,7 +564,9 @@ export abstract class PlayScene extends Phaser.Scene {
     }
     this.current = best;
     const fight = this.enemyInReach();
-    const near = this.enemies.some((e) => Math.hypot(e.sprite.x - this.player.x, e.sprite.y - this.player.y) < 260);
+    // hysteresis: show combat controls under 260px, hide only beyond 320px, so they never flicker
+    const limit = this.inCombat ? 320 : 260;
+    const near = this.enemies.some((e) => Math.hypot(e.sprite.x - this.player.x, e.sprite.y - this.player.y) < limit);
     if (near !== this.inCombat) {
       this.inCombat = near;
       this.hooks.combat(near);
@@ -680,8 +683,9 @@ export abstract class PlayScene extends Phaser.Scene {
   private damageEnemy(e: Enemy, n: number): void {
     e.hp -= n;
     this.floatText(e.sprite.x, e.sprite.y - (e.boss ? 60 : 30), `-${n}`);
-    e.sprite.setTintFill(0xffffff);
-    this.time.delayedCall(90, () => e.sprite.active && e.sprite.clearTint());
+    // a short, steady red tint marks the hit (no white flash)
+    e.sprite.setTint(0xff9a9a);
+    this.time.delayedCall(160, () => e.sprite.active && e.sprite.clearTint());
     this.game_.events.emit('sfx', 'hit');
     if (e.boss) this.hooks.bossBar(Math.max(0, e.hp), e.max);
     if (e.hp <= 0) this.killEnemy(e);
@@ -721,7 +725,8 @@ export abstract class PlayScene extends Phaser.Scene {
     if (this.canStand(kx, ky)) this.player.setPosition(kx, ky);
     if (!this.settings.reducedMotion) {
       this.cameras.main.shake(120, 0.006);
-      this.tweens.add({ targets: this.novaSprite, alpha: 0.3, duration: 90, yoyo: true, repeat: 4 });
+      this.novaSprite.setTint(0xff9a9a);
+      this.time.delayedCall(INVULN_MS / 2, () => this.novaSprite.clearTint());
     }
     this.game_.hurt(n); // a defeat is handled by the app (game 'defeated' event)
   }
@@ -935,9 +940,11 @@ export abstract class PlayScene extends Phaser.Scene {
     let target: { x: number; y: number } | null = null;
     if (on) {
       let best = Infinity;
+      // hysteresis: the arrow appears beyond 100px and hides only within 80px, so it never flickers
+      const minDist = this.senseArrow.visible ? 80 : 100;
       for (const c of this.senseCandidates()) {
         const d = Math.hypot(c.x - this.player.x, c.y - this.player.y);
-        if (d > 90 && d < best) {
+        if (d > minDist && d < best) {
           best = d;
           target = c;
         }
@@ -1011,7 +1018,6 @@ export abstract class PlayScene extends Phaser.Scene {
   protected celebrate(): void {
     if (this.mode !== 'play') return;
     this.burst(this.player.x, this.player.y - 20, 0xfff6b0, this.settings.graphics === 'low' ? 6 : 14);
-    if (!this.settings.reducedMotion) this.cameras.main.flash(250, 255, 255, 220);
     // cosmetics may have changed
     const p = this.game_.state.player;
     this.novaSprite.setTexture(makeNovaTexture(this, p.appearance, p.cosmetics));

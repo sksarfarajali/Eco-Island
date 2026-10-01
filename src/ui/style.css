@@ -58,6 +58,7 @@ button:focus-visible, label.btn:focus-visible, input:focus-visible, select:focus
 
 /* ---------- buttons */
 .btn {
+  -webkit-tap-highlight-color: transparent;
   appearance: none;
   border: 2px solid var(--line);
   background: #fff;
@@ -102,7 +103,6 @@ button:focus-visible, label.btn:focus-visible, input:focus-visible, select:focus
   padding: 24px;
   box-shadow: var(--shadow);
   text-align: center;
-  animation: pop 0.35s ease-out;
 }
 .logo {
   font-size: 2.6rem;
@@ -279,15 +279,14 @@ button:focus-visible, label.btn:focus-visible, input:focus-visible, select:focus
   display: flex;
   gap: 8px;
   align-items: center;
-  animation: slide-in 0.25s ease-out;
-  transition: opacity 0.35s, transform 0.35s;
+  transition: opacity 0.35s;
   border-left: 5px solid var(--accent);
 }
 .toast.world { border-left-color: var(--harmony); }
 .toast.quest { border-left-color: var(--xp); }
 .toast.reward { border-left-color: var(--bond); }
 .toast.warn { border-left-color: #6a3a8a; }
-.toast.out { opacity: 0; transform: translateY(-8px); }
+.toast.out { opacity: 0; }
 .toast-icon { font-size: 1.2rem; }
 
 /* ---------- dialogue */
@@ -303,7 +302,6 @@ button:focus-visible, label.btn:focus-visible, input:focus-visible, select:focus
   box-shadow: var(--shadow);
   border: 3px solid #fff;
   z-index: 20;
-  animation: slide-up 0.25s ease-out;
 }
 .dialog-speaker {
   position: absolute;
@@ -341,7 +339,6 @@ button:focus-visible, label.btn:focus-visible, input:focus-visible, select:focus
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  animation: pop 0.2s ease-out;
 }
 .panel.modal { width: min(460px, 100%); }
 .panel header { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px 6px 20px; }
@@ -388,9 +385,6 @@ button:focus-visible, label.btn:focus-visible, input:focus-visible, select:focus
 .row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px dashed var(--line); font-size: 0.9rem; }
 .credits p { font-size: 0.9rem; }
 
-@keyframes pop { from { transform: scale(0.94); opacity: 0; } to { transform: scale(1); opacity: 1; } }
-@keyframes slide-in { from { transform: translateY(-10px); opacity: 0; } to { transform: none; opacity: 1; } }
-@keyframes slide-up { from { transform: translate(-50%, 20px); opacity: 0; } to { transform: translate(-50%, 0); opacity: 1; } }
 
 /* ---------- full MVP additions: health, combat, boss, fishing, ending */
 .hearts { display: flex; flex-wrap: wrap; gap: 1px; font-size: 0.85rem; margin: 2px 0; letter-spacing: -1px; }
@@ -450,11 +444,10 @@ button:focus-visible, label.btn:focus-visible, input:focus-visible, select:focus
 }
 .bobber { font-size: 2.6rem; transition: transform 0.3s; }
 .bobber.cast { animation: bob 1.4s ease-in-out infinite; }
-.bobber.bite { animation: bite 0.18s ease-in-out infinite; transform: scale(1.25); }
+.bobber.bite { transform: translateY(10px) scale(1.2); }
 .bobber.bite::after { content: ' ❗'; }
 .fish-status { font-weight: 800; font-size: 1.1rem; text-align: center; min-height: 2.8em; }
 @keyframes bob { 50% { transform: translateY(6px); } }
-@keyframes bite { 50% { transform: translateY(8px) scale(1.25); } }
 .menu-card.wide { width: min(560px, 100%); }
 .screen.ending { background: radial-gradient(circle at top, rgba(255, 246, 200, 0.6), rgba(43, 33, 53, 0.55)); }
 .montage { list-style: none; padding: 0; text-align: left; max-height: 40vh; overflow-y: auto; }

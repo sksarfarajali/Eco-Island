@@ -142,7 +142,7 @@ export class IslandScene extends PlayScene {
     place(POI.caveEntrance.x, POI.caveEntrance.y + 20, 'cave_entrance');
     place(POI.highlandsPath.x + 14, POI.highlandsPath.y + 12, 'mountain_path');
     const ripple = img(this, POI.dockEnd.x + 26, POI.dockEnd.y + 4, 'fishing_spot', 0.5).setDepth(-7900);
-    if (!this.settings.reducedMotion) this.tweens.add({ targets: ripple, scale: (1.3 / RES), alpha: 0.4, duration: 1200, yoyo: true, repeat: -1 });
+    if (!this.settings.reducedMotion) this.tweens.add({ targets: ripple, scale: 1.2 / RES, duration: 1600, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
     place(POI.egg.x + 2, POI.egg.y + 12, 'log');
     this.eggInLog = place(POI.egg.x - 6, POI.egg.y + 6, 'egg').setDepth(POI.egg.y + 13);
     place(POI.nest.x, POI.nest.y + 8, 'nest');
@@ -333,7 +333,6 @@ export class IslandScene extends PlayScene {
     this.follower?.setPosition(dest.x + 30, dest.y + 10);
     this.moveTarget = null;
     this.cameras.main.centerOn(dest.x, dest.y);
-    if (!this.settings.reducedMotion) this.cameras.main.fadeIn(350, 255, 255, 255);
   }
 
   protected onWorldTap(wx: number, wy: number): boolean {
