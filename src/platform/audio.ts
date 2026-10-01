@@ -71,6 +71,13 @@ export class Audio {
       case 'levelup': seq([523, 659, 784, 1047, 1319], 0.1, 'sine', 0.7); break;
       case 'magic': seq([880, 1175, 1568], 0.08, 'sine', 0.4); break;
       case 'error': this.tone(200, t, 0.15, 'sawtooth', 0.25, o, 150); break;
+      case 'swing': this.tone(700, t, 0.08, 'triangle', 0.25, o, 300); break;
+      case 'hit': this.tone(240, t, 0.07, 'square', 0.35, o, 120); break;
+      case 'hurt': this.tone(330, t, 0.22, 'sawtooth', 0.35, o, 110); break;
+      case 'dodge': this.tone(500, t, 0.12, 'sine', 0.3, o, 900); break;
+      case 'block': this.tone(900, t, 0.06, 'square', 0.25, o, 700); break;
+      case 'bite': seq([880, 880], 0.06, 'square', 0.3); break;
+      case 'door': seq([196, 147, 98], 0.16, 'triangle', 0.6); break;
     }
   }
 

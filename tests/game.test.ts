@@ -79,6 +79,9 @@ describe('egg choice — every branch has a visible consequence', () => {
     toEggChoice(g, 'sell');
     expect(g.state.choices).toEqual([{ id: 'egg_choice', value: 'sell', day: 1 }]);
     g.state.npcs.zed.met = true;
+    // Zed first offers his Highlands quest; once that is no longer pending he talks about the egg.
+    expect(g.talk('zed').options?.[0].id).toBe('accept:q_highlands');
+    g.state.quests.q_highlands.status = 'locked';
     expect(g.talk('zed').lines.join(' ')).toMatch(/business/);
     expect(g.pipChatter()).toBeTruthy();
   });

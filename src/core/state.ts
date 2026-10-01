@@ -1,14 +1,31 @@
+import { AREAS, TEMPLE_BLOCK_START, TEMPLE_MIRRORS } from './areas';
+import { maxHealth } from './combat';
 import { START_MINUTES, STARTING_COINS } from './config';
-import { QUEST_ORDER, QUESTS } from './content';
+import { CREATURE_ORDER, QUEST_ORDER, QUESTS } from './content';
 import { NODES, PLOTS, POI } from './layout';
-import type { Appearance, GameState, NodeState, QuestId, QuestStatus } from './types';
+import type { Appearance, GameState, NodeState, QuestId, QuestStatus, TempleState } from './types';
 
-export const SAVE_VERSION = 2;
+export const SAVE_VERSION = 3;
+
+/** Resource nodes in the other areas use ids like `caves:c3`. */
+const AREA_NODE_CHARS = 'crf';
 
 export function initialNodes(): Record<string, NodeState> {
-  return Object.fromEntries(
-    NODES.map((n) => [n.id, { stage: n.kind === 'grove' ? 'soil' : 'full', timer: 0 } as NodeState]),
+  const island = NODES.map((n) => [n.id, { stage: n.kind === 'grove' ? 'soil' : 'full', timer: 0 } as NodeState]);
+  const areas = Object.values(AREAS).flatMap((a) =>
+    a.objects.filter((o) => AREA_NODE_CHARS.includes(o.ch)).map((o) => [o.id, { stage: 'full', timer: 0 } as NodeState]),
   );
+  return Object.fromEntries([...island, ...areas]);
+}
+
+export function initialTemple(): TempleState {
+  return {
+    runeProgress: [],
+    mirrors: TEMPLE_MIRRORS.map(() => false),
+    blocks: TEMPLE_BLOCK_START.map(([x, y]) => [x, y] as [number, number]),
+    solved: [false, false, false],
+    echoSeen: false,
+  };
 }
 
 export function newGameState(appearance: Appearance = { skin: 0, hair: 0, outfit: 0 }, now = new Date()): GameState {
@@ -27,7 +44,9 @@ export function newGameState(appearance: Appearance = { skin: 0, hair: 0, outfit
       level: 1,
       xp: 0,
       coins: STARTING_COINS,
-      position: { zone: 'village', x: POI.start.x, y: POI.start.y },
+      health: maxHealth(1),
+      attackBonus: 0,
+      position: { area: 'island', zone: 'village', x: POI.start.x, y: POI.start.y },
       cosmetics: [],
     },
     island: {
@@ -35,8 +54,9 @@ export function newGameState(appearance: Appearance = { skin: 0, hair: 0, outfit
       harmony: 0,
       treesPlanted: 0,
       lakeRestored: false,
-      corruption: { village: 0, forest: 0, lake: 0 },
+      corruption: { village: 0, forest: 0, lake: 0, caves: 0, temple: 0, highlands: 0, grove: 0 },
       harvestPressure: 0,
+      fishPressure: 0,
       cleanseProgress: 0,
       warnedPressure: false,
       zonesUnlocked: ['village', 'forest', 'lake'],
@@ -52,15 +72,28 @@ export function newGameState(appearance: Appearance = { skin: 0, hair: 0, outfit
       eggHatchTimer: 0,
       gardenProduce: {},
       gardenTimer: {},
+      templeOpen: false,
+      temple: initialTemple(),
+      sunKeyFound: false,
+      skyhareFreed: false,
+      enemiesDefeated: 0,
+      bossDefeated: false,
+      ending: null,
+      fishCaught: 0,
+      trip: {},
     },
-    inventory: { wood: 0, stone: 0, glow_berry: 0, veggie: 0, seed: 1, essence: 0, purifier: 0 },
-    buildings: { house: 0, garden: 0 },
-    creatures: {
-      glowfox: { state: 'unknown', bond: 0, present: true },
-      ripplet: { state: 'unknown', bond: 0, present: false },
-      mossprite: { state: 'unknown', bond: 0, present: false },
-      sunchick: { state: 'unknown', bond: 0, present: false },
+    inventory: {
+      wood: 0, stone: 0, crystal: 0, glow_berry: 0, veggie: 0, seed: 1, essence: 0, purifier: 0,
+      minnow: 0, moonfish: 0, echo_koi: 0, tonic: 0,
     },
+    buildings: { house: 0, garden: 0, workshop: 0, sanctuary: 0, arch: 0 },
+    creatures: Object.fromEntries(
+      CREATURE_ORDER.map((id) => [
+        id,
+        // creatures that live in their home area from the start; others appear through world changes
+        { state: 'unknown', bond: 0, present: ['glowfox', 'gleamwing', 'pebblepup', 'thistlegoat', 'archowl'].includes(id), evolved: false },
+      ]),
+    ) as GameState['creatures'],
     pip: {
       abilities: [],
       enabled: { glow: true, sense: true, echo: true },
@@ -76,7 +109,7 @@ export function newGameState(appearance: Appearance = { skin: 0, hair: 0, outfit
     quests,
     choices: [],
     discoveries: { creatures: [], plants: [], relics: [], places: [] },
-    stats: { sessions: 0, playSeconds: 0, questsDone: 0, worldChanges: 0, errors: 0 },
+    stats: { sessions: 0, playSeconds: 0, questsDone: 0, worldChanges: 0, errors: 0, defeats: 0 },
   };
 }
 
@@ -145,6 +178,15 @@ function fillDefaults(raw: Record<string, unknown>): GameState {
   for (const id of Object.keys(QUESTS) as QuestId[]) {
     if (!merged.quests[id]) merged.quests[id] = { status: 'locked', progress: 0 };
   }
+  // Quests added in later versions open up if the quest that leads to them is already done.
+  for (const id of QUEST_ORDER) {
+    if (merged.quests[id].status !== 'done') continue;
+    for (const next of QUESTS[id].unlocks) {
+      const q = merged.quests[next];
+      if (q.status === 'locked') q.status = QUESTS[next].autoAccept ? 'active' : 'available';
+    }
+  }
+  if (merged.choices.some((c) => c.id === 'egg_choice' && c.value === 'temple')) merged.world.templeOpen = true;
   merged.saveVersion = SAVE_VERSION;
   return merged;
 }

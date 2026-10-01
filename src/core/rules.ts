@@ -27,6 +27,15 @@ export function computeMetrics(s: GameState): Metrics {
     island_level: s.island.level,
     player_level: s.player.level,
     bonded: Object.values(s.creatures).filter((c) => c.state === 'bonded').length,
+    evolved: Object.values(s.creatures).filter((c) => c.evolved).length,
+    workshops: s.buildings.workshop,
+    sanctuaries: s.buildings.sanctuary,
+    arches: s.buildings.arch,
+    temple_open: s.world.templeOpen ? 1 : 0,
+    trials: s.world.temple.solved.filter(Boolean).length,
+    skyhare_choice: s.choices.find((c) => c.id === 'skyhare_choice')?.value ?? '',
+    ending: s.world.ending ?? '',
+    corruption_lake: s.island.corruption.lake,
   };
 }
 

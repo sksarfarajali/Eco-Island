@@ -2,7 +2,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { AWAY_CAP_SECONDS, GROW, MINUTES_PER_SECOND } from '../src/core/config';
-import { DISCOVERY_CATALOG, ITEMS, QUESTS } from '../src/core/content';
+import { BUILDINGS, CREATURES, DISCOVERY_CATALOG, DISCOVERY_MILESTONES, ITEMS, QUESTS, RECIPES } from '../src/core/content';
 import { DEFAULT_RULES, Game } from '../src/core/game';
 import { applyTimeAway } from '../src/core/growth';
 import { hasKey, t } from '../src/core/i18n';
@@ -161,13 +161,26 @@ describe('localization (PRD 23: all player-visible text in language files)', () 
       if (q.giver !== 'pip') keys.push(`quest.${id}.offer`, `quest.${id}.reminder`);
     }
     for (const r of DEFAULT_RULES) for (const e of r.then) if (e.startsWith('toast:')) keys.push(e.slice(6));
-    for (const npc of ['rocco', 'luna', 'zed', 'tilly']) keys.push(`${npc}.intro`, `npc.${npc}`);
+    for (const npc of ['rocco', 'luna', 'zed', 'tilly']) keys.push(`${npc}.intro`, `npc.${npc}`, `${npc}.ending_heal`, `${npc}.ending_seal`);
+    for (const b of Object.keys(BUILDINGS)) keys.push(`building.${b}`, `building.${b}.desc`);
+    for (const r of Object.keys(RECIPES)) keys.push(`recipe.${r}`, `recipe.${r}.desc`);
+    for (const c of Object.values(CREATURES)) if (c.evolution) keys.push(`evo.${c.evolution.into}`);
+    for (const a of ['caves', 'temple', 'highlands', 'grove']) keys.push(`area.${a}.first`, `zone.${a}`);
+    for (const e of ['heal', 'seal']) {
+      keys.push(`ending.title_${e}`, `ending.body_${e}`, `finale.after_${e}_1`, `finale.after_${e}_2`, `pip.ending_${e}`, `choice.final_choice.${e}`);
+    }
+    for (const c of ['village', 'wild']) keys.push(`highlands.after_${c}`, `pip.memory_skyhare_${c}`, `choice.skyhare_choice.${c}`);
+    for (const i of [1, 2, 3]) keys.push(`temple.trial_${i}_done`, `temple.door_${i}`);
+    for (const k of ['interact', 'dodge', 'block', 'ability']) keys.push(`settings.key_${k}`);
+    for (const m of DISCOVERY_MILESTONES) keys.push(`book.milestone_${m}`);
+    for (const r of DEFAULT_RULES) for (const e of r.then) if (e.startsWith('cosmetic:')) keys.push(`cosmetic.${e.slice(9)}`);
+    keys.push('act.mine_crystal', 'act.pick_flower', 'zone.island');
     for (const c of ['hatch', 'sell', 'temple']) {
       keys.push(`choice.egg_choice.${c}`, `egg.after_${c}`, `zed.after_${c}`, `luna.egg_${c}`, `rocco.egg_${c}`);
     }
     for (const a of ['glow', 'sense', 'echo']) keys.push(`ability.${a}`, `ability.${a}.desc`, `ability.${a}.locked`);
     for (const z of ['village', 'forest', 'lake']) keys.push(`zone.${z}`);
-    for (const c of ['glowfox', 'ripplet', 'mossprite', 'sunchick']) keys.push(`creature.${c}.bonded_line`);
+    for (const c of Object.keys(CREATURES)) keys.push(`creature.${c}.bonded_line`);
     for (const st of ['unknown', 'observed', 'friendly', 'bonded']) keys.push(`cstate.${st}`);
     for (const m of ['happy', 'sad', 'excited']) keys.push(`mood.${m}`);
     for (const p of ['journal', 'book', 'bag', 'build', 'shop', 'map', 'companion', 'settings']) keys.push(`panel.${p}`);

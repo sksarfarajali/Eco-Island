@@ -7,13 +7,13 @@ import type { Appearance, NpcId, PipMood } from '../core/types';
  */
 export const RES = 2;
 
-type Ctx = CanvasRenderingContext2D;
+export type Ctx = CanvasRenderingContext2D;
 
 export const SKIN = ['#f6d3b3', '#e2a97e', '#b9794b', '#7a4a2b'];
 export const HAIR = ['#3a2716', '#e0a83f', '#c4452c', '#3b4ba8'];
 export const OUTFIT = ['#3aa6d8', '#ec6b3c', '#4fc386', '#9a62e3'];
 
-function canvasTex(scene: Phaser.Scene, key: string, w: number, h: number, draw: (ctx: Ctx) => void): void {
+export function canvasTex(scene: Phaser.Scene, key: string, w: number, h: number, draw: (ctx: Ctx) => void): void {
   if (scene.textures.exists(key)) scene.textures.remove(key);
   const tex = scene.textures.createCanvas(key, w * RES, h * RES)!;
   const ctx = tex.getContext();
@@ -24,16 +24,16 @@ function canvasTex(scene: Phaser.Scene, key: string, w: number, h: number, draw:
   tex.refresh();
 }
 
-const ellipse = (ctx: Ctx, x: number, y: number, rx: number, ry: number, fill: string) => {
+export const ellipse = (ctx: Ctx, x: number, y: number, rx: number, ry: number, fill: string) => {
   ctx.fillStyle = fill;
   ctx.beginPath();
   ctx.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2);
   ctx.fill();
 };
 
-const circle = (ctx: Ctx, x: number, y: number, r: number, fill: string) => ellipse(ctx, x, y, r, r, fill);
+export const circle = (ctx: Ctx, x: number, y: number, r: number, fill: string) => ellipse(ctx, x, y, r, r, fill);
 
-const rrect = (ctx: Ctx, x: number, y: number, w: number, h: number, r: number, fill: string, stroke?: string) => {
+export const rrect = (ctx: Ctx, x: number, y: number, w: number, h: number, r: number, fill: string, stroke?: string) => {
   ctx.beginPath();
   ctx.roundRect(x, y, w, h, r);
   ctx.fillStyle = fill;
@@ -141,8 +141,32 @@ const NPC_LOOKS: Record<NpcId, PersonLook> = {
   tilly: { skin: SKIN[1], hair: '#8a3b2a', outfit: '#ef7fa6', hat: 'braids' },
 };
 
-export function makeNovaTexture(scene: Phaser.Scene, a: Appearance): void {
-  canvasTex(scene, 'nova', 28, 40, (ctx) => drawPerson(ctx, novaLook(a)));
+/** Nova, wearing any cosmetics earned from Discovery Book milestones. */
+export function makeNovaTexture(scene: Phaser.Scene, a: Appearance, cosmetics: string[] = []): string {
+  const key = `nova_${a.skin}${a.hair}${a.outfit}_${[...cosmetics].sort().join('-')}`;
+  if (scene.textures.exists(key)) return key;
+  canvasTex(scene, key, 32, 44, (ctx) => {
+    ctx.translate(2, 4);
+    if (cosmetics.includes('star_cape')) {
+      ctx.fillStyle = '#5b4bd6';
+      ctx.beginPath();
+      ctx.moveTo(6, 19);
+      ctx.lineTo(22, 19);
+      ctx.lineTo(26, 38);
+      ctx.lineTo(2, 38);
+      ctx.closePath();
+      ctx.fill();
+      [[8, 30], [18, 27], [14, 34]].forEach(([x, y]) => circle(ctx, x, y, 1.2, '#ffe27a'));
+    }
+    drawPerson(ctx, novaLook(a));
+    if (cosmetics.includes('friend_scarf')) rrect(ctx, 7, 17, 14, 4, 2, '#ff7aa8');
+    if (cosmetics.includes('explorer_hat')) {
+      ellipse(ctx, 14, 3.5, 12, 3, '#c8a06a');
+      rrect(ctx, 8, -3, 12, 7, 3, '#d9b47c');
+      rrect(ctx, 8, 1.5, 12, 1.6, 0.5, '#3aa6d8');
+    }
+  });
+  return key;
 }
 
 function drawPip(ctx: Ctx, mood: PipMood): void {
@@ -199,6 +223,7 @@ function drawPip(ctx: Ctx, mood: PipMood): void {
 
 /** Create every static texture used by the world. */
 export function makeTextures(scene: Phaser.Scene): void {
+  if (scene.textures.exists('tree')) return;
   (Object.keys(NPC_LOOKS) as NpcId[]).forEach((id) =>
     canvasTex(scene, `npc_${id}`, 28, 40, (ctx) => drawPerson(ctx, NPC_LOOKS[id])),
   );

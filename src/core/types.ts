@@ -1,9 +1,19 @@
-export type ItemId = 'wood' | 'stone' | 'glow_berry' | 'veggie' | 'seed' | 'essence' | 'purifier';
-export type ZoneId = 'village' | 'forest' | 'lake';
-export type BuildingId = 'house' | 'garden';
-export type CreatureId = 'glowfox' | 'ripplet' | 'mossprite' | 'sunchick';
+export type ItemId =
+  | 'wood' | 'stone' | 'crystal' | 'glow_berry' | 'veggie' | 'seed' | 'essence' | 'purifier'
+  | 'minnow' | 'moonfish' | 'echo_koi' | 'tonic';
+
+/** Zones are named regions of the world; the island holds three, each other area is one zone. */
+export type ZoneId = 'village' | 'forest' | 'lake' | 'caves' | 'temple' | 'highlands' | 'grove';
+/** Areas are separate maps. The island is the hub; the others are reached from it. */
+export type AreaId = 'island' | 'caves' | 'temple' | 'highlands' | 'grove';
+export type BuildingId = 'house' | 'garden' | 'workshop' | 'sanctuary' | 'arch';
+export type CreatureId =
+  | 'glowfox' | 'ripplet' | 'mossprite' | 'sunchick' | 'gleamwing'
+  | 'pebblepup' | 'skyhare' | 'thistlegoat' | 'archowl' | 'wispling';
 export type NpcId = 'rocco' | 'luna' | 'zed' | 'tilly';
-export type QuestId = 'q_first_steps' | 'q_egg' | 'q_home' | 'q_lake' | 'q_seeds' | 'q_glowfox';
+export type QuestId =
+  | 'q_first_steps' | 'q_egg' | 'q_home' | 'q_lake' | 'q_seeds' | 'q_glowfox'
+  | 'q_workshop' | 'q_caves' | 'q_temple' | 'q_highlands' | 'q_evolve' | 'q_finale';
 export type CreatureState = 'unknown' | 'observed' | 'friendly' | 'bonded';
 export type EggChoice = 'hatch' | 'sell' | 'temple';
 export type EggState = 'hidden' | 'nest' | 'hatched' | 'sold' | 'temple';
@@ -11,8 +21,9 @@ export type PipAbility = 'glow' | 'sense' | 'echo';
 export type PipMood = 'happy' | 'sad' | 'excited';
 export type QuestStatus = 'locked' | 'available' | 'active' | 'done';
 export type DiscoveryCategory = 'creatures' | 'plants' | 'relics' | 'places';
+export type Ending = 'heal' | 'seal';
 
-/** Growth stage of a world node (tree, rock, bush, grove spot). */
+/** Growth stage of a world node (tree, rock, bush, grove spot, crystal). */
 export type NodeStage = 'full' | 'empty' | 'stump' | 'sapling' | 'soil' | 'tree';
 
 export interface Appearance {
@@ -25,7 +36,6 @@ export interface NodeState {
   stage: NodeStage;
   /** Game minutes remaining until the next growth step (0 = none pending). */
   timer: number;
-  /** True when a sapling was planted by the player (it grows into a choppable tree). */
   planted?: boolean;
 }
 
@@ -33,6 +43,17 @@ export interface ChoiceRecord {
   id: string;
   value: string;
   day: number;
+}
+
+export interface TempleState {
+  /** Rune pillars activated so far in the current attempt. */
+  runeProgress: number[];
+  /** Mirror orientations: true = '\', false = '/'. */
+  mirrors: boolean[];
+  /** Push-block positions in tiles. */
+  blocks: [number, number][];
+  solved: [boolean, boolean, boolean];
+  echoSeen: boolean;
 }
 
 export interface GameState {
@@ -46,7 +67,10 @@ export interface GameState {
     level: number;
     xp: number;
     coins: number;
-    position: { zone: ZoneId; x: number; y: number };
+    health: number;
+    /** Permanent attack bonus from the crafted Crystal Charm. */
+    attackBonus: number;
+    position: { area: AreaId; zone: ZoneId; x: number; y: number };
     cosmetics: string[];
   };
   island: {
@@ -55,13 +79,11 @@ export interface GameState {
     treesPlanted: number;
     lakeRestored: boolean;
     corruption: Record<ZoneId, number>;
-    /** Careless-harvest pressure in the forest; reaching the limit raises corruption. */
     harvestPressure: number;
-    /** Trees planted in a corrupted forest since the last cleanse step. */
+    fishPressure: number;
     cleanseProgress: number;
     warnedPressure: boolean;
     zonesUnlocked: ZoneId[];
-    /** Visual world changes switched on by world rules. */
     visuals: string[];
     firedRules: string[];
   };
@@ -74,10 +96,20 @@ export interface GameState {
     eggHatchTimer: number;
     gardenProduce: Record<string, number>;
     gardenTimer: Record<string, number>;
+    templeOpen: boolean;
+    temple: TempleState;
+    sunKeyFound: boolean;
+    skyhareFreed: boolean;
+    enemiesDefeated: number;
+    bossDefeated: boolean;
+    ending: Ending | null;
+    fishCaught: number;
+    /** Common resources gathered since Nova last left Whisper Village (PRD 14: defeat loss). */
+    trip: Partial<Record<ItemId, number>>;
   };
   inventory: Record<ItemId, number>;
   buildings: Record<BuildingId, number>;
-  creatures: Record<CreatureId, { state: CreatureState; bond: number; present: boolean }>;
+  creatures: Record<CreatureId, { state: CreatureState; bond: number; present: boolean; evolved: boolean }>;
   pip: {
     abilities: PipAbility[];
     enabled: Record<PipAbility, boolean>;
@@ -88,8 +120,10 @@ export interface GameState {
   quests: Record<QuestId, { status: QuestStatus; progress: number }>;
   choices: ChoiceRecord[];
   discoveries: Record<DiscoveryCategory, string[]>;
-  stats: { sessions: number; playSeconds: number; questsDone: number; worldChanges: number; errors: number };
+  stats: { sessions: number; playSeconds: number; questsDone: number; worldChanges: number; errors: number; defeats: number };
 }
+
+export type ActionKey = 'interact' | 'dodge' | 'block' | 'ability';
 
 export interface Settings {
   music: boolean;
@@ -102,4 +136,6 @@ export interface Settings {
   textSize: 'small' | 'medium' | 'large';
   colorBlind: boolean;
   language: 'en';
+  /** Desktop key bindings (PRD 24: simple control remapping). Values are Phaser key names. */
+  keys: Record<ActionKey, string>;
 }

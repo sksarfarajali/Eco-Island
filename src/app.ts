@@ -3,13 +3,15 @@ import { Game } from './core/game';
 import { applyTimeAway } from './core/growth';
 import { setLanguage, t } from './core/i18n';
 import { newGameState } from './core/state';
-import type { Appearance, BuildingId, EggChoice, GameState, Settings } from './core/types';
+import type { AreaId, Appearance, BuildingId, EggChoice, GameState, ItemId, Settings, ZoneId } from './core/types';
 import { Audio } from './platform/audio';
 import { SaveStore, requestPersistentStorage } from './platform/saves';
 import { applySettingsToDocument, loadSettings, saveSettings } from './platform/settings';
 import { TabLock } from './platform/tablock';
-import { WorldScene, type SceneHooks, type WorldData } from './scenes/WorldScene';
-import { UI } from './ui/ui';
+import { AreaScene } from './scenes/AreaScene';
+import { IslandScene } from './scenes/IslandScene';
+import type { PlayScene, SceneHooks, WorldData } from './scenes/PlayScene';
+import { UI, type UIActions } from './ui/ui';
 
 const SAVE_DEBOUNCE_MS = 1200;
 const AUTOSAVE_MS = 20_000;
@@ -35,6 +37,7 @@ export class App {
   private installPrompt: InstallPromptEvent | null = null;
   private unsubs: (() => void)[] = [];
   private stopped = false;
+  private activeKey: 'island' | 'area' = 'island';
 
   constructor() {
     applySettingsToDocument(this.settings);
@@ -53,7 +56,6 @@ export class App {
     });
     window.addEventListener('pagehide', () => void this.saveNow());
     setInterval(() => void this.saveNow(), AUTOSAVE_MS);
-    // keep the HUD clock ticking
     setInterval(() => this.playing && this.ui.refreshHud(), 1000);
   }
 
@@ -81,9 +83,9 @@ export class App {
 
   private showMenu(notice: string | null = null): void {
     this.playing = false;
-    const backdrop = this.saved ? JSON.parse(JSON.stringify(this.saved)) as GameState : newGameState();
+    const backdrop = this.saved ? (JSON.parse(JSON.stringify(this.saved)) as GameState) : newGameState();
     this.setGame(new Game(backdrop));
-    this.startWorld('menu');
+    this.startWorld('menu', 'island', 'spawn');
     this.ui.hideHud();
     this.ui.showMenu({
       save: this.saved ? { day: Math.floor(this.saved.world.minutes / 1440) + 1, islandLevel: this.saved.island.level } : null,
@@ -113,11 +115,13 @@ export class App {
       }),
       ev.on('worldChange', () => this.playing && this.audio.haptic(25)),
       ev.on('float', () => this.playing && this.audio.haptic(8)),
+      ev.on('defeated', ({ lost }) => this.onDefeated(lost)),
     ];
   }
 
-  private startWorld(mode: 'menu' | 'play'): void {
-    const data: WorldData = { game: this.game!, mode, hooks: this.sceneHooks(), settings: this.settings };
+  private startWorld(mode: 'menu' | 'play', area: AreaId, arrive: string): void {
+    const key = area === 'island' ? 'island' : 'area';
+    const data: WorldData = { game: this.game!, mode, hooks: this.sceneHooks(), settings: this.settings, area, arrive };
     if (!this.phaser) {
       this.phaser = new Phaser.Game({
         type: Phaser.AUTO,
@@ -129,14 +133,27 @@ export class App {
         input: { activePointers: 3 },
         fps: { target: 60 },
       });
-      this.phaser.scene.add('world', WorldScene, true, data);
-    } else {
-      this.scene()?.scene.restart(data);
+      this.phaser.scene.add('island', IslandScene, false);
+      this.phaser.scene.add('area', AreaScene, false);
     }
+    const mgr = this.phaser.scene;
+    const other = key === 'island' ? 'area' : 'island';
+    if (mgr.isActive(other) || mgr.isPaused(other)) mgr.stop(other);
+    if (mgr.isActive(key)) mgr.getScene(key).scene.restart(data);
+    else mgr.start(key, data);
+    this.activeKey = key;
+    this.ui.setCombat(false);
+    this.ui.setBossBar(0, 0);
   }
 
-  private scene(): WorldScene | null {
-    return (this.phaser?.scene.getScene('world') as WorldScene | undefined) ?? null;
+  private scene(): PlayScene | null {
+    const s = this.phaser?.scene.getScene(this.activeKey) as PlayScene | undefined;
+    return s && s.sys.isActive() ? s : null;
+  }
+
+  private island(): IslandScene | null {
+    const s = this.scene();
+    return s instanceof IslandScene ? s : null;
   }
 
   private newGame(appearance: Appearance): void {
@@ -164,14 +181,40 @@ export class App {
     if (away) {
       this.scene()?.setPaused(true);
       this.ui.showAway(away, () => this.scene()?.setPaused(false));
+    } else if (state.world.ending) {
+      // finished games continue as a post-game sandbox
+      this.ui.info(t('ending.postgame'));
     }
   }
 
   private enterPlay(): void {
     this.playing = true;
-    this.startWorld('play');
+    const area = this.game!.state.player.position.area ?? 'island';
+    this.startWorld('play', area, 'saved');
     this.ui.showHud();
     this.ui.showBuildBar(null);
+  }
+
+  /** Move Nova between the island and the other areas. */
+  private travel(area: AreaId, arrive: string): void {
+    if (!this.game) return;
+    this.game.state.player.position.area = area;
+    if (area === 'island') this.game.state.player.position.zone = arrive === 'highlandsPath' ? 'lake' : arrive === 'templeGate' ? 'forest' : 'village';
+    void this.saveNow();
+    this.startWorld('play', area, arrive);
+    this.ui.showBuildBar(null);
+  }
+
+  private onDefeated(lost: Partial<Record<ItemId, number>>): void {
+    if (!this.playing) return;
+    this.audio.haptic(80);
+    this.travel('island', 'village');
+    const list = (Object.entries(lost) as [ItemId, number][]).map(([i, n]) => `${n} ${this.game!.itemName(i)}`).join(', ');
+    this.ui.showDialog({
+      npc: 'pip',
+      speaker: 'Pip',
+      lines: [t('defeat.1'), list ? t('defeat.lost', { list }) : t('defeat.nothing_lost'), t('defeat.2')],
+    });
   }
 
   private quitToMenu(): void {
@@ -221,13 +264,18 @@ export class App {
       prompt: (p) => this.ui.setPrompt(p),
       dialog: (d) => this.ui.showDialog(d),
       openShop: () => this.ui.openPanel('shop'),
+      openWorkshop: () => this.ui.openPanel('workshop'),
+      startFishing: () => this.ui.showFishing(),
       choosePlot: (plotId, b) => void this.ui.askBuild(plotId, b),
       info: (text) => this.ui.info(text),
-      zoneChanged: (z) => this.ui.setZone(z),
+      zoneChanged: (z: ZoneId) => this.ui.setZone(z),
+      travel: (area, arrive) => this.travel(area, arrive),
+      combat: (on) => this.ui.setCombat(on),
+      bossBar: (hp, max) => this.ui.setBossBar(hp, max),
     };
   }
 
-  private uiActions(): ConstructorParameters<typeof UI>[0] {
+  private uiActions(): UIActions {
     const report = (r: { ok: boolean; message?: string }) => r.message && this.ui.info(r.message);
     return {
       newGame: (a) => this.newGame(a),
@@ -238,36 +286,63 @@ export class App {
         if (id.startsWith('egg:')) {
           const choice = id.slice(4) as EggChoice;
           this.ui.showDialog({ npc: 'pip', speaker: 'Pip', lines: [t(`egg.after_${choice}`), t('egg.luna_arrives')] });
+        } else if (id.startsWith('skyhare:')) {
+          this.ui.showDialog({ npc: 'pip', speaker: 'Pip', lines: [t(`highlands.after_${id.slice(8)}`)] });
+        } else if (id.startsWith('final:') && game.state.world.ending) {
+          const e = game.state.world.ending;
+          this.ui.showDialog({ npc: 'pip', speaker: 'Pip', lines: [t(`finale.after_${e}_1`), t(`finale.after_${e}_2`), t('finale.heart')] }, () =>
+            this.ui.showEnding(e, game.endingSummary()),
+          );
         }
       },
       interact: () => this.scene()?.interact(),
+      dodge: () => this.scene()?.dodge(),
+      block: (on) => this.scene()?.setBlocking(on),
+      burst: () => this.scene()?.pipBurst(),
+      eat: () => report(this.game!.eatBest()),
       setJoystick: (x, y) => this.scene()?.setJoystick(x, y),
       setPaused: (p) => this.scene()?.setPaused(p),
       startBuild: (b: BuildingId) => {
-        this.scene()?.startBuildMode(b);
+        const isl = this.island();
+        if (!isl) {
+          this.ui.info(t('build.only_village'));
+          return;
+        }
+        isl.startBuildMode(b);
         this.ui.showBuildBar(b);
       },
       cancelBuild: () => {
-        this.scene()?.cancelBuildMode();
+        this.island()?.cancelBuildMode();
         this.ui.showBuildBar(null);
       },
-      previewBuild: (plotId, b) => this.scene()?.previewBuild(plotId, b),
-      clearPreview: () => this.scene()?.clearGhost(),
+      previewBuild: (plotId, b) => this.island()?.previewBuild(plotId, b),
+      clearPreview: () => this.island()?.clearGhost(),
       confirmBuild: (plotId, b) => {
         const r = this.game!.build(b, plotId);
         if (r.ok) {
-          this.scene()?.playConstruction(plotId);
+          this.island()?.playConstruction(plotId);
           this.ui.showBuildBar(null);
         } else {
-          this.scene()?.clearGhost();
+          this.island()?.clearGhost();
           report(r);
         }
       },
-      travel: (zone) => this.scene()?.travelTo(zone),
-      usePurifier: () => report(this.game!.usePurifier('forest')),
+      travel: (zone) => {
+        if (zone === 'village' || zone === 'forest' || zone === 'lake') {
+          const isl = this.island();
+          if (isl) isl.travelTo(zone);
+          else this.travel('island', zone);
+        } else {
+          this.travel(zone as AreaId, 'spawn');
+        }
+      },
+      usePurifier: () => report(this.game!.usePurifier()),
+      craft: (recipe) => report(this.game!.craft(recipe)),
+      catchFish: () => this.game!.catchFish(),
       buy: (item, qty) => report(this.game!.buy(item, qty)),
       sell: (item, qty) => report(this.game!.sell(item, qty)),
       settingsChanged: (s) => {
+        const keysChanged = JSON.stringify(s.keys) !== JSON.stringify(this.settings.keys);
         this.settings = s;
         saveSettings(s);
         applySettingsToDocument(s);
@@ -275,6 +350,8 @@ export class App {
         this.audio.applySettings(s);
         this.ui.setSettings(s);
         this.scene()?.applySettings(s);
+        // key bindings are attached when a scene starts
+        if (keysChanged && this.playing) this.startWorld('play', this.game!.state.player.position.area, 'saved');
       },
       exportSave: () => {
         const state = this.game?.state ?? this.saved;

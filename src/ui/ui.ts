@@ -1,5 +1,7 @@
 import { ISLAND_HARMONY_LEVELS, PLAYER_XP_LEVELS } from '../core/config';
 import {
+  BUILDING_ORDER,
+  RECIPES,
   BUILDINGS,
   CREATURES,
   DISCOVERY_CATALOG,
@@ -14,7 +16,10 @@ import type { AwaySummary } from '../core/growth';
 import { t } from '../core/i18n';
 import { LAKE, PLOTS, isLand } from '../core/layout';
 import type {
+  ActionKey,
+  AreaId,
   Appearance,
+  Ending,
   BuildingId,
   DiscoveryCategory,
   ItemId,
@@ -32,6 +37,12 @@ export interface UIActions {
   continueGame(): void;
   respond(optionId: string): void;
   interact(): void;
+  dodge(): void;
+  block(on: boolean): void;
+  burst(): void;
+  eat(): void;
+  craft(recipe: string): void;
+  catchFish(): ItemId;
   setJoystick(x: number, y: number): void;
   setPaused(p: boolean): void;
   startBuild(b: BuildingId): void;
@@ -39,7 +50,7 @@ export interface UIActions {
   previewBuild(plotId: string, b: BuildingId): void;
   confirmBuild(plotId: string, b: BuildingId): void;
   clearPreview(): void;
-  travel(zone: ZoneId): void;
+  travel(zone: ZoneId | AreaId): void;
   usePurifier(): void;
   buy(item: ItemId, qty: number): void;
   sell(item: ItemId, qty: number): void;
@@ -54,7 +65,7 @@ export interface UIActions {
   canInstall(): boolean;
 }
 
-type PanelId = 'journal' | 'book' | 'bag' | 'build' | 'shop' | 'map' | 'companion' | 'settings';
+type PanelId = 'journal' | 'book' | 'bag' | 'build' | 'shop' | 'map' | 'companion' | 'settings' | 'workshop';
 
 const coarse = () => typeof matchMedia !== 'undefined' && matchMedia('(pointer: coarse)').matches;
 
@@ -77,6 +88,10 @@ export class UI {
   private shopTab: 'buy' | 'sell' = 'buy';
   private bookTab: DiscoveryCategory = 'creatures';
   private dialogKey: ((e: KeyboardEvent) => void) | null = null;
+  private combatBar!: HTMLElement;
+  private bossBarEl!: HTMLElement;
+  private inCombat = false;
+  private fishingOpen = false;
 
   constructor(
     private actions: UIActions,
@@ -302,6 +317,20 @@ export class UI {
     this.toasts = h('div', { class: 'toasts', 'aria-live': 'polite' });
     this.buildBar = h('div', { class: 'build-bar', hidden: true });
     const joystick = this.makeJoystick();
+    const cbtn = (cls: string, label: string, icon: string, handlers: Record<string, (e: Event) => void>) =>
+      h('button', { class: `combat-btn ${cls}`, 'aria-label': label, title: label, ...handlers }, h('span', { 'aria-hidden': 'true' }, icon), h('small', {}, label));
+    this.combatBar = h('div', { class: 'combat-bar', hidden: true },
+      cbtn('dodge', t('combat.dodge'), '💨', { onclick: () => this.actions.dodge() }),
+      cbtn('block', t('combat.block'), '🛡️', {
+        onpointerdown: (e) => { e.preventDefault(); this.actions.block(true); },
+        onpointerup: () => this.actions.block(false),
+        onpointerleave: () => this.actions.block(false),
+        onpointercancel: () => this.actions.block(false),
+      }),
+      cbtn('burst', t('combat.pip'), '✨', { onclick: () => this.actions.burst() }),
+      cbtn('eat', t('combat.eat'), '🫐', { onclick: () => this.actions.eat() }),
+    );
+    this.bossBarEl = h('div', { class: 'boss-bar', hidden: true });
     this.hud = h('div', { class: 'hud', hidden: true },
       this.hudStatus,
       h('nav', { class: 'hud-buttons', 'aria-label': t('hud.menu') },
@@ -314,6 +343,8 @@ export class UI {
         btn('settings', '⚙️', 'hud.settings'),
       ),
       this.buildBar,
+      this.bossBarEl,
+      this.combatBar,
       this.promptEl,
       this.actionBtn,
       joystick,
@@ -354,9 +385,12 @@ export class UI {
       h('div', { class: 'hud-line' },
         h('strong', {}, t(`zone.${this.zone}`)),
         h('span', { class: 'muted' }, `${t('hud.day', { day: g.day })} · ${g.timeLabel()}`)),
+      h('div', { class: 'hearts', role: 'img', 'aria-label': t('hud.health', { hp: s.player.health, max: g.maxHealth() }), title: t('hud.health', { hp: s.player.health, max: g.maxHealth() }) },
+        Array.from({ length: g.maxHealth() }, (_, i) => h('span', { class: i < s.player.health ? 'heart' : 'heart empty' }, i < s.player.health ? '❤️' : '🤍'))),
       h('div', { class: 'hud-line' },
         h('span', { class: 'coins', title: t('hud.coins') }, `🪙 ${s.player.coins}`),
-        corruption ? h('span', { class: 'corrupt', title: t('hud.corruption') }, `🌑 ${corruption}/3`) : null),
+        corruption ? h('span', { class: 'corrupt', title: t('hud.corruption') }, `🌲🌑 ${corruption}/3`) : null,
+        s.island.corruption.lake ? h('span', { class: 'corrupt', title: t('hud.lake_corruption') }, `💧🌑 ${s.island.corruption.lake}/3`) : null),
       h('div', { class: 'hud-meter', title: t('hud.player_level_hint') },
         h('span', {}, `⭐ ${t('hud.player_level', { level: s.player.level })}`), bar(xp.pct, 'xp')),
       h('div', { class: 'hud-meter', title: t('hud.island_level_hint') },
@@ -369,15 +403,49 @@ export class UI {
     this.refreshHud();
   }
 
-  setPrompt(p: { label: string; enabled: boolean } | null): void {
+  setPrompt(p: { label: string; enabled: boolean; combat: boolean } | null): void {
     const touch = coarse();
     this.promptEl.hidden = !p || touch;
-    this.actionBtn.hidden = !p || !touch;
-    if (!p) return;
-    this.promptEl.className = `prompt ${p.enabled ? '' : 'disabled'}`;
-    this.promptEl.textContent = p.enabled ? `${t('hud.key_e')} — ${p.label}` : p.label;
-    this.actionBtn.className = `action-btn ${p.enabled ? '' : 'disabled'}`;
+    this.actionBtn.hidden = (!p && !this.inCombat) || !touch;
+    if (!p) {
+      if (this.inCombat) {
+        this.actionBtn.className = 'action-btn combat';
+        this.actionBtn.textContent = t('combat.attack');
+      }
+      return;
+    }
+    const key = this.keyLabel(this.settings.keys.interact);
+    this.promptEl.className = `prompt ${p.enabled ? '' : 'disabled'} ${p.combat ? 'combat' : ''}`;
+    this.promptEl.textContent = p.enabled ? `${key} — ${p.label}` : p.label;
+    this.actionBtn.className = `action-btn ${p.enabled ? '' : 'disabled'} ${p.combat ? 'combat' : ''}`;
     this.actionBtn.textContent = p.label;
+  }
+
+  private keyLabel(k: string): string {
+    return k === 'SHIFT' ? 'Shift' : k.length === 1 ? k : k.charAt(0) + k.slice(1).toLowerCase();
+  }
+
+  /** Combat controls appear when enemies are near (App Flow 19). */
+  setCombat(on: boolean): void {
+    this.inCombat = on;
+    this.combatBar.hidden = !on;
+    this.combatBar.classList.toggle('desktop', !coarse());
+    if (!coarse()) {
+      const k = this.settings.keys;
+      const labels = this.combatBar.querySelectorAll('small');
+      labels[0].textContent = `${t('combat.dodge')} (${this.keyLabel(k.dodge)})`;
+      labels[1].textContent = `${t('combat.block')} (${this.keyLabel(k.block)})`;
+      labels[2].textContent = `${t('combat.pip')} (${this.keyLabel(k.ability)})`;
+      labels[3].textContent = `${t('combat.eat')} (1)`;
+    }
+    if (!on && coarse() && this.actionBtn.classList.contains('combat')) this.actionBtn.hidden = true;
+  }
+
+  setBossBar(hp: number, max: number): void {
+    this.bossBarEl.hidden = max <= 0;
+    if (max <= 0) return;
+    clear(this.bossBarEl);
+    this.bossBarEl.append(h('strong', {}, t('combat.boss_name')), bar(hp / max, 'boss'));
   }
 
   private makeJoystick(): HTMLElement {
@@ -593,6 +661,7 @@ export class UI {
       case 'map': return this.map();
       case 'companion': return this.companion();
       case 'settings': return this.settingsPanel();
+      case 'workshop': return this.workshop();
     }
   }
 
@@ -652,15 +721,17 @@ export class UI {
   private creatureBond(id: string): HTMLElement | null {
     const c = this.game!.state.creatures[id as keyof typeof CREATURES];
     if (!c) return null;
-    return h('div', { class: 'bond' }, h('span', {}, `${t(`cstate.${c.state}`)} · ${t('book.bond')} ${c.bond}%`), bar(c.bond / 100, 'bond'));
+    const evo = CREATURES[id as keyof typeof CREATURES].evolution;
+    const extra = c.evolved && evo ? ` · ✨ ${t(`evo.${evo.into}`)}` : evo && c.state === 'bonded' ? ` · ${t('book.can_evolve')}` : '';
+    return h('div', { class: 'bond' }, h('span', {}, `${t(`cstate.${c.state}`)} · ${t('book.bond')} ${c.bond}%${extra}`), bar(c.bond / 100, 'bond'));
   }
 
   private bag(): HTMLElement {
     const g = this.game!;
     const s = g.state;
     const groups: [string, ItemId[]][] = [
-      ['bag.resources', ['wood', 'stone', 'essence']],
-      ['bag.food', ['glow_berry', 'veggie']],
+      ['bag.resources', ['wood', 'stone', 'crystal', 'essence']],
+      ['bag.food', ['glow_berry', 'veggie', 'minnow', 'moonfish', 'echo_koi', 'tonic']],
       ['bag.special', ['seed', 'purifier']],
     ];
     const itemRow = (item: ItemId) =>
@@ -669,10 +740,13 @@ export class UI {
         h('div', {}, h('strong', {}, `${g.itemName(item)} × ${s.inventory[item]}`), h('p', { class: 'muted' }, t(`item.${item}.desc`))),
         item === 'purifier' && s.inventory.purifier > 0
           ? h('button', { class: 'btn small', onclick: () => this.actions.usePurifier() }, t('bag.use'))
-          : null,
+          : ITEMS[item].heal && s.inventory[item] > 0
+            ? h('button', { class: 'btn small', disabled: s.player.health >= g.maxHealth(), onclick: () => this.info(g.eat(item).message ?? '') }, t('bag.eat', { n: ITEMS[item].heal! > 10 ? '♥♥' : ITEMS[item].heal! }))
+            : null,
       );
     return h('div', {},
       h('p', { class: 'coins-line' }, `🪙 ${t('bag.coins', { n: s.player.coins })}`),
+      s.player.attackBonus ? h('p', { class: 'muted' }, `🔷 ${t('bag.charm')}`) : null,
       groups.map(([key, items]) => h('section', {}, h('h3', {}, t(key)), items.map(itemRow))),
       h('section', {}, h('h3', {}, t('bag.cosmetics')),
         s.player.cosmetics.length
@@ -695,12 +769,12 @@ export class UI {
     const s = g.state;
     const free = PLOTS.filter((p) => g.plotStatus(p.id) === 'free').length;
     const nextLocked = PLOTS.find((p) => g.plotStatus(p.id) === 'locked');
-    const cards = (Object.keys(BUILDINGS) as BuildingId[]).map((b) => {
+    const cards = BUILDING_ORDER.map((b) => {
       const def = BUILDINGS[b];
       const missing = g.missingFor(def.cost);
       const ok = !Object.keys(missing).length && free > 0;
       return h('div', { class: 'card build-card' },
-        h('div', { class: 'card-icon', 'aria-hidden': 'true' }, b === 'house' ? '🏠' : '🥕'),
+        h('div', { class: 'card-icon', 'aria-hidden': 'true' }, def.icon),
         h('strong', {}, t(`building.${b}`)),
         h('p', {}, t(`building.${b}.desc`)),
         this.costChips(def.cost),
@@ -715,7 +789,7 @@ export class UI {
       h('p', {}, t('build.slots', { free, total: PLOTS.length })),
       nextLocked ? h('p', { class: 'muted' }, t('build.next_slot', { level: nextLocked.islandLevel })) : null,
       h('div', { class: 'cards' }, cards),
-      h('p', { class: 'muted' }, t('build.buildings_owned', { house: s.buildings.house, garden: s.buildings.garden })),
+      h('p', { class: 'muted' }, t('build.buildings_owned', { list: BUILDING_ORDER.filter((b) => s.buildings[b]).map((b) => `${s.buildings[b]} × ${t(`building.${b}`)}`).join(', ') || '—' })),
     );
   }
 
@@ -785,7 +859,11 @@ export class UI {
     const sy = H / 44;
     ctx.fillStyle = '#4cc3e6';
     ctx.fillRect(0, 0, W, H);
-    const known = (z: ZoneId) => s.discoveries.places.includes({ village: 'whisper_village', forest: 'emerald_forest', lake: 'moonlit_lake' }[z]);
+    const PLACE: Record<string, string> = {
+      village: 'whisper_village', forest: 'emerald_forest', lake: 'moonlit_lake',
+      caves: 'crystal_caves', temple: 'ancient_temple', highlands: 'highlands', grove: 'shadow_grove',
+    };
+    const known = (z: string) => s.discoveries.places.includes(PLACE[z]);
     for (let ty = 0; ty < 44; ty++) {
       for (let tx = 0; tx < 64; tx++) {
         if (!isLand(tx, ty)) continue;
@@ -825,14 +903,20 @@ export class UI {
     ctx.fillStyle = '#2b2135';
     const labels: [ZoneId, number, number][] = [['village', 15, 31], ['forest', 46, 10], ['lake', 47, 41]];
     for (const [z, x, y] of labels) ctx.fillText(known(z) ? t(`zone.${z}`) : '???', x * sx, y * sy);
-    const buttons = (['village', 'forest', 'lake'] as ZoneId[]).map((z) =>
+    // markers for the entrances to the other areas
+    const marks: [string, number, number, string][] = [['caves', 6, 9, '⛰️'], ['temple', 46, 3, '🏛️'], ['highlands', 60, 29, '🏔️']];
+    ctx.font = '12px system-ui, sans-serif';
+    for (const [z, x, y, icon] of marks) ctx.fillText(known(z) ? icon : '❔', (x + 0.5) * sx, (y + 1) * sy);
+    const travelBtn = (z: ZoneId) =>
       h('button', { class: 'btn', disabled: !known(z) || z === this.zone, onclick: () => { this.closePanel(); this.actions.travel(z); } },
-        known(z) ? t('map.travel', { name: t(`zone.${z}`) }) : t('map.unknown')));
+        known(z) ? t('map.travel', { name: t(`zone.${z}`) }) : t('map.unknown'));
     return h('div', {},
       canvas,
       h('p', { class: 'muted' }, t('map.hint')),
-      h('div', { class: 'menu-buttons' }, buttons),
-      h('p', { class: 'muted' }, t('map.temple_note')),
+      h('h3', {}, t('map.island')),
+      h('div', { class: 'menu-buttons' }, (['village', 'forest', 'lake'] as ZoneId[]).map(travelBtn)),
+      h('h3', {}, t('map.beyond')),
+      h('div', { class: 'menu-buttons' }, (['caves', 'temple', 'highlands', 'grove'] as ZoneId[]).map(travelBtn)),
     );
   }
 
@@ -857,13 +941,151 @@ export class UI {
       h('section', {}, h('h3', {}, t('companion.creatures')),
         (Object.keys(CREATURES) as (keyof typeof CREATURES)[]).filter((c) => s.creatures[c].state !== 'unknown').map((c) =>
           h('div', { class: 'item' }, h('span', { class: 'item-icon' }, CREATURES[c].icon),
-            h('div', {}, h('strong', {}, t(`disc.${c}`)), this.creatureBond(c)))),
+            h('div', {}, h('strong', {}, g.creatureName(c)), this.creatureBond(c)))),
         Object.values(s.creatures).every((c) => c.state === 'unknown') ? h('p', { class: 'muted' }, t('companion.no_creatures')) : null),
       h('section', {}, h('h3', {}, t('companion.friends')),
         met.length
           ? met.map((n) => h('div', { class: 'item' }, h('strong', {}, t(`npc.${n}`)), h('div', { class: 'grow' }, h('span', { class: 'muted' }, t('companion.trust')), bar(s.npcs[n].trust / 100, 'trust'))))
           : h('p', { class: 'muted' }, t('companion.no_friends'))),
     );
+  }
+
+  private workshop(): HTMLElement {
+    const g = this.game!;
+    const s = g.state;
+    const rows = Object.entries(RECIPES).map(([id, r]) => {
+      const missing = Object.keys(g.missingFor(r.cost)).length > 0;
+      const done = r.makes === 'charm' && s.player.attackBonus > 0;
+      return h('div', { class: 'card' },
+        h('div', { class: 'card-icon', 'aria-hidden': 'true' }, r.makes === 'charm' ? '🔷' : ITEMS[r.makes].icon),
+        h('strong', {}, t(`recipe.${id}`)),
+        h('p', {}, t(`recipe.${id}.desc`)),
+        this.costChips(r.cost),
+        h('button', { class: 'btn primary', disabled: missing || done, onclick: () => this.actions.craft(id) }, done ? t('workshop.owned') : t('workshop.craft')),
+      );
+    });
+    return h('div', {}, h('p', { class: 'muted' }, t('workshop.intro')), h('div', { class: 'cards' }, rows));
+  }
+
+  /** Fishing mini-game at the Moonlit Lake dock (App Flow 18): cast, wait, react, reel. */
+  showFishing(): void {
+    if (!this.game) return;
+    this.actions.setPaused(true);
+    const first = this.game.state.world.fishCaught === 0;
+    const status = h('p', { class: 'fish-status', 'aria-live': 'assertive' }, first ? t('fish.tutorial') : t('fish.ready'));
+    const bobber = h('div', { class: 'bobber', 'aria-hidden': 'true' }, '🎣');
+    const btn = h('button', { class: 'btn primary big' }, t('fish.cast'));
+    let phase: 'ready' | 'waiting' | 'bite' | 'done' = 'ready';
+    let timer = 0;
+    const window_ = this.settings.reducedMotion ? 1500 : 1100;
+    this.fishingOpen = true;
+    const close = () => {
+      clearTimeout(timer);
+      this.fishingOpen = false;
+      wrap.remove();
+      document.removeEventListener('keydown', key);
+      this.actions.setPaused(this.panelEl !== null || this.dialogOpen);
+    };
+    const press = () => {
+      if (phase === 'ready' || phase === 'done') {
+        phase = 'waiting';
+        status.textContent = t('fish.waiting');
+        btn.textContent = t('fish.reel');
+        bobber.className = 'bobber cast';
+        timer = window.setTimeout(() => {
+          phase = 'bite';
+          status.textContent = t('fish.bite');
+          bobber.className = 'bobber bite';
+          if ('vibrate' in navigator && this.settings.haptics) navigator.vibrate(60);
+          timer = window.setTimeout(() => {
+            if (phase !== 'bite') return;
+            phase = 'done';
+            status.textContent = t('fish.escaped');
+            btn.textContent = t('fish.again');
+            bobber.className = 'bobber';
+          }, window_);
+        }, 1500 + Math.random() * 2500);
+      } else if (phase === 'waiting') {
+        clearTimeout(timer);
+        phase = 'done';
+        status.textContent = t('fish.too_early');
+        btn.textContent = t('fish.again');
+        bobber.className = 'bobber';
+      } else if (phase === 'bite') {
+        clearTimeout(timer);
+        phase = 'done';
+        const fish = this.actions.catchFish();
+        status.textContent = t('fish.caught', { name: this.game!.itemName(fish), icon: ITEMS[fish].icon });
+        btn.textContent = t('fish.again');
+        bobber.className = 'bobber';
+      }
+    };
+    const key = (e: KeyboardEvent) => {
+      if ([' ', 'Enter', 'e', 'E'].includes(e.key)) {
+        e.preventDefault();
+        press();
+      }
+      if (e.key === 'Escape') close();
+    };
+    btn.addEventListener('click', press);
+    document.addEventListener('keydown', key);
+    const wrap = h('div', { class: 'modal-wrap' },
+      h('div', { class: 'panel modal fishing', role: 'dialog', 'aria-label': t('fish.title') },
+        h('header', {}, h('h2', {}, t('fish.title')), h('button', { class: 'close', 'aria-label': t('common.close'), onclick: close }, '✕')),
+        h('div', { class: 'panel-body' }, h('div', { class: 'pond' }, bobber), status, h('div', { class: 'menu-buttons' }, btn))));
+    this.root.append(wrap);
+    btn.focus();
+  }
+
+  /** Ending montage: everything the island remembers (PRD 3 ending). */
+  showEnding(ending: Ending, summary: { label: string; value: string }[]): void {
+    this.closePanel();
+    this.closeDialog();
+    this.showScreen(
+      h('div', { class: 'screen ending' },
+        h('div', { class: 'menu-card wide' },
+          h('h1', { class: 'logo' }, t(`ending.title_${ending}`)),
+          h('p', {}, t(`ending.body_${ending}`)),
+          h('h3', {}, t('ending.remembers')),
+          h('ul', { class: 'montage' }, summary.map((r) => h('li', {}, h('span', {}, r.label), h('strong', {}, r.value)))),
+          h('p', { class: 'muted' }, t('ending.thanks')),
+          h('div', { class: 'menu-buttons' },
+            h('button', { class: 'btn primary big', onclick: () => { this.closeScreen(); this.hud.hidden = false; this.actions.setPaused(false); } }, t('ending.keep_playing')),
+            h('button', { class: 'btn', onclick: () => this.showCredits() }, t('menu.credits'))),
+        ),
+      ),
+    );
+    this.actions.setPaused(true);
+  }
+
+  private keyRemap(s: Settings, update: (patch: Partial<Settings>) => void): HTMLElement {
+    const row = (action: ActionKey) => {
+      const btn = h('button', { class: 'btn small' }, this.keyLabel(s.keys[action]));
+      btn.addEventListener('click', () => {
+        btn.textContent = t('settings.press_key');
+        const listen = (e: KeyboardEvent) => {
+          e.preventDefault();
+          e.stopPropagation();
+          document.removeEventListener('keydown', listen, true);
+          if (e.key === 'Escape') {
+            btn.textContent = this.keyLabel(s.keys[action]);
+            return;
+          }
+          const name = e.key === ' ' ? 'SPACE' : e.key === 'Shift' ? 'SHIFT' : e.key.length === 1 ? e.key.toUpperCase() : e.key.toUpperCase();
+          if (/^[A-Z]$/.test(name) && 'WASD'.includes(name)) {
+            btn.textContent = this.keyLabel(s.keys[action]);
+            this.info(t('settings.key_taken'));
+            return;
+          }
+          update({ keys: { ...s.keys, [action]: name } });
+          s.keys = { ...s.keys, [action]: name };
+          btn.textContent = this.keyLabel(name);
+        };
+        document.addEventListener('keydown', listen, true);
+      });
+      return h('div', { class: 'setting' }, h('span', {}, t(`settings.key_${action}`)), btn);
+    };
+    return h('div', {}, (['interact', 'dodge', 'block', 'ability'] as ActionKey[]).map(row));
   }
 
   private settingsPanel(): HTMLElement {
@@ -901,6 +1123,7 @@ export class UI {
         select(t('settings.language'), 'language', [['en', 'English']])),
       h('section', {}, h('h3', {}, t('settings.controls')),
         h('p', { class: 'muted' }, t('settings.controls_desktop')),
+        this.keyRemap(s, update),
         h('p', { class: 'muted' }, t('settings.controls_touch'))),
       h('section', {}, h('h3', {}, t('settings.saves')),
         h('p', { class: 'muted' }, t('settings.saves_hint')),
@@ -917,6 +1140,7 @@ export class UI {
   // ------------------------------------------------------------------ keyboard
 
   private onKey(e: KeyboardEvent): void {
+    if (this.fishingOpen) return;
     if (e.key === 'Escape') {
       if (this.modalEl) this.closeModal();
       else if (this.panelEl) this.closePanel();

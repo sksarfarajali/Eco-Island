@@ -1,4 +1,4 @@
-import { AWAY_CAP_SECONDS, AWAY_MIN_SECONDS, GARDEN_MAX_PRODUCE, GROW, MINUTES_PER_SECOND } from './config';
+import { AWAY_CAP_SECONDS, AWAY_MIN_SECONDS, FISH_PRESSURE_DECAY, GARDEN_MAX_PRODUCE, GROW, MINUTES_PER_SECOND } from './config';
 import { NODE_BY_ID } from './layout';
 import type { GameState } from './types';
 
@@ -25,6 +25,7 @@ export function processGrowth(s: GameState, minutes: number): GrowthSummary {
   const out = emptyGrowth();
   if (minutes <= 0) return out;
   s.world.minutes += minutes;
+  s.island.fishPressure = Math.max(0, s.island.fishPressure - minutes / FISH_PRESSURE_DECAY);
   const forestSlow = s.island.corruption.forest >= 2 ? 0.5 : 1;
 
   for (const [id, node] of Object.entries(s.world.nodes)) {

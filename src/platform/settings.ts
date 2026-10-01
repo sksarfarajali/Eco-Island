@@ -14,6 +14,7 @@ export const DEFAULT_SETTINGS: Settings = {
   textSize: 'medium',
   colorBlind: false,
   language: 'en',
+  keys: { interact: 'E', dodge: 'SHIFT', block: 'F', ability: 'Q' },
 };
 
 export function loadSettings(): Settings {
@@ -22,7 +23,8 @@ export function loadSettings(): Settings {
   const defaults = { ...DEFAULT_SETTINGS, reducedMotion: prefersReduced };
   try {
     const raw = localStorage.getItem(KEY);
-    return raw ? { ...defaults, ...(JSON.parse(raw) as Partial<Settings>) } : defaults;
+    const saved = raw ? (JSON.parse(raw) as Partial<Settings>) : {};
+    return { ...defaults, ...saved, keys: { ...defaults.keys, ...(saved.keys ?? {}) } };
   } catch {
     return defaults;
   }

@@ -22,6 +22,7 @@ export const GROW = {
   stumpRegrow: 720,
   bushRegrow: 240,
   rockRegrow: 480,
+  crystalRegrow: 600,
   eggHatch: 60,
   garden: 240,
 } as const;
@@ -40,6 +41,12 @@ export const PLAYER_XP_LEVELS = [0, 50, 120, 220, 350, 500, 700];
 export const ISLAND_HARMONY_LEVELS = [0, 40, 100, 180, 300, 450];
 
 export const EGG_SALE_PRICE = 40;
+
+/** Fishing (App Flow 18): catching too many fish in a short time raises lake corruption. */
+export const FISH_PRESSURE_WARN = 6;
+export const FISH_PRESSURE_LIMIT = 9;
+/** Fish pressure fades by one every this many game minutes. */
+export const FISH_PRESSURE_DECAY = 90;
 export const STARTING_COINS = 20;
 
 /** Interaction reach in world pixels. */

@@ -391,3 +391,72 @@ button:focus-visible, label.btn:focus-visible, input:focus-visible, select:focus
 @keyframes pop { from { transform: scale(0.94); opacity: 0; } to { transform: scale(1); opacity: 1; } }
 @keyframes slide-in { from { transform: translateY(-10px); opacity: 0; } to { transform: none; opacity: 1; } }
 @keyframes slide-up { from { transform: translate(-50%, 20px); opacity: 0; } to { transform: translate(-50%, 0); opacity: 1; } }
+
+/* ---------- full MVP additions: health, combat, boss, fishing, ending */
+.hearts { display: flex; flex-wrap: wrap; gap: 1px; font-size: 0.85rem; margin: 2px 0; letter-spacing: -1px; }
+.heart.empty { opacity: 0.55; }
+.prompt.combat, .action-btn.combat { background: #d64545; }
+.combat-bar {
+  position: absolute;
+  right: calc(env(safe-area-inset-right) + 128px);
+  bottom: calc(env(safe-area-inset-bottom) + 24px);
+  display: grid;
+  grid-template-columns: repeat(2, 64px);
+  gap: 8px;
+}
+.combat-bar.desktop { right: 50%; transform: translateX(50%); bottom: calc(env(safe-area-inset-bottom) + 72px); grid-template-columns: repeat(4, auto); }
+.combat-btn {
+  border: 3px solid #fff;
+  border-radius: 18px;
+  background: rgba(43, 33, 53, 0.82);
+  color: #fff;
+  font: inherit;
+  font-weight: 800;
+  min-width: 64px;
+  min-height: 56px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  touch-action: none;
+  box-shadow: var(--shadow);
+}
+.combat-btn span { font-size: 1.25rem; }
+.combat-btn small { font-size: 0.65rem; }
+.combat-bar.desktop .combat-btn { min-height: 44px; flex-direction: row; padding: 4px 10px; }
+.boss-bar {
+  position: absolute;
+  top: calc(env(safe-area-inset-top) + 10px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(420px, calc(100vw - 140px));
+  background: rgba(43, 33, 53, 0.9);
+  color: #fff;
+  border-radius: 14px;
+  padding: 8px 12px;
+  box-shadow: var(--shadow);
+  text-align: center;
+}
+@media (max-width: 640px) { .boss-bar { top: auto; bottom: calc(env(safe-area-inset-bottom) + 170px); width: calc(100vw - 32px); } }
+.bar.boss .bar-fill { background: linear-gradient(90deg, #c86bff, #ff5a8a); }
+.fishing .pond {
+  height: 140px;
+  border-radius: 16px;
+  background: radial-gradient(ellipse at center, #5fd4f0, #2fa5d6 70%);
+  display: grid;
+  place-items: center;
+  margin-bottom: 10px;
+}
+.bobber { font-size: 2.6rem; transition: transform 0.3s; }
+.bobber.cast { animation: bob 1.4s ease-in-out infinite; }
+.bobber.bite { animation: bite 0.18s ease-in-out infinite; transform: scale(1.25); }
+.bobber.bite::after { content: ' ❗'; }
+.fish-status { font-weight: 800; font-size: 1.1rem; text-align: center; min-height: 2.8em; }
+@keyframes bob { 50% { transform: translateY(6px); } }
+@keyframes bite { 50% { transform: translateY(8px) scale(1.25); } }
+.menu-card.wide { width: min(560px, 100%); }
+.screen.ending { background: radial-gradient(circle at top, rgba(255, 246, 200, 0.6), rgba(43, 33, 53, 0.55)); }
+.montage { list-style: none; padding: 0; text-align: left; max-height: 40vh; overflow-y: auto; }
+.montage li { display: flex; justify-content: space-between; gap: 12px; padding: 6px 4px; border-bottom: 1px dashed var(--line); }
+.montage li span { color: var(--muted); }

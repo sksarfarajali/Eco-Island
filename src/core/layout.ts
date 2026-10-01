@@ -103,7 +103,11 @@ export const PLOTS: readonly PlotDef[] = [
   { id: 'plot1', x: px(7), y: px(29), islandLevel: 1 },
   { id: 'plot2', x: px(12), y: px(31), islandLevel: 1 },
   { id: 'plot3', x: px(19), y: px(31), islandLevel: 2 },
-  { id: 'plot4', x: px(24), y: px(29), islandLevel: 3 },
+  { id: 'plot4', x: px(25), y: px(24), islandLevel: 2 },
+  { id: 'plot5', x: px(24), y: px(29), islandLevel: 3 },
+  { id: 'plot6', x: px(10), y: px(36), islandLevel: 3 },
+  { id: 'plot7', x: px(16), y: px(36), islandLevel: 4 },
+  { id: 'plot8', x: px(21), y: px(37), islandLevel: 5 },
 ];
 
 /** Points of interest (world pixels). */
@@ -129,10 +133,13 @@ export const POI = {
   ripplet: { x: px(50), y: px(33) },
   lakeShore: { x: px(34), y: px(31) },
   forestEntry: { x: px(31), y: px(13) },
+  caveEntrance: { x: px(6), y: px(9) },
+  highlandsPath: { x: px(60), y: px(29) },
+  dockEnd: { x: px(38), y: px(33) },
 } as const;
 
 /** Zone travel destinations for the map's fast travel. */
-export const ZONE_SPAWN: Record<ZoneId, { x: number; y: number }> = {
+export const ZONE_SPAWN: Record<'village' | 'forest' | 'lake', { x: number; y: number }> = {
   village: POI.start,
   forest: POI.forestEntry,
   lake: POI.lakeShore,
@@ -144,6 +151,8 @@ export const STATIC_BLOCKERS: { x: number; y: number; w: number; h: number }[] =
   { x: POI.shop.x, y: POI.shop.y - 4, w: 70, h: 30 },
   { x: POI.workshop.x, y: POI.workshop.y - 6, w: 92, h: 44 },
   { x: POI.templeGate.x, y: POI.templeGate.y, w: 110, h: 34 },
+  { x: POI.caveEntrance.x, y: POI.caveEntrance.y - 6, w: 90, h: 30 },
+  { x: POI.highlandsPath.x + 14, y: POI.highlandsPath.y - 8, w: 40, h: 30 },
 ];
 
 /** Paths drawn on the ground (tile polylines). */
@@ -153,4 +162,6 @@ export const PATHS: [number, number][][] = [
   [[16, 24], [11, 21]],
   [[16, 26], [9, 24]],
   [[40, 12], [46, 6], [46, 4]],
+  [[11, 21], [8, 15], [6, 11]],
+  [[47, 27], [55, 27], [60, 30]],
 ];
