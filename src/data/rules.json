@@ -1,0 +1,57 @@
+[
+  {
+    "id": "forest_density_1",
+    "when": "trees_planted >= 3",
+    "then": ["visual:forest_flowers", "harmony:10", "discover:plants:starbloom", "toast:rule.forest_density_1"]
+  },
+  {
+    "id": "forest_density_2",
+    "when": "trees_planted >= 10",
+    "then": ["visual:forest_lush", "creature:mossprite", "harmony:20", "toast:rule.forest_density_2"]
+  },
+  {
+    "id": "forest_density_3",
+    "when": "trees_planted >= 25",
+    "then": ["visual:forest_ancient", "harmony:30", "toast:rule.forest_density_3"]
+  },
+  {
+    "id": "lake_restored",
+    "when": "lake_restored == 1",
+    "then": ["visual:lake_bright", "creature:ripplet", "discover:plants:moonlily", "harmony:25", "toast:rule.lake_restored"]
+  },
+  {
+    "id": "first_garden",
+    "when": "gardens >= 1",
+    "then": ["visual:butterflies", "toast:rule.first_garden"]
+  },
+  {
+    "id": "new_villager",
+    "when": "houses >= 3",
+    "then": ["npc:tilly", "harmony:15", "toast:rule.new_villager"]
+  },
+  {
+    "id": "egg_hatch",
+    "when": "egg_choice == 'hatch'",
+    "then": ["visual:nest_warm", "toast:rule.egg_hatch"]
+  },
+  {
+    "id": "egg_temple",
+    "when": "egg_choice == 'temple'",
+    "then": ["visual:temple_glow", "discover:relics:temple_seal", "harmony:15", "toast:rule.egg_temple"]
+  },
+  {
+    "id": "egg_sold",
+    "when": "egg_choice == 'sell'",
+    "then": ["visual:zed_camp", "toast:rule.egg_sold"]
+  },
+  {
+    "id": "milestone_sense",
+    "when": "discoveries >= 3",
+    "then": ["ability:sense", "toast:rule.milestone_sense"]
+  },
+  {
+    "id": "milestone_crown",
+    "when": "discoveries >= 8",
+    "then": ["cosmetic:flower_crown", "toast:rule.milestone_crown"]
+  }
+]
