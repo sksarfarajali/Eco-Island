@@ -1,0 +1,26 @@
+{
+  "name": "echo-island",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Echo Island \u2014 The World That Remembers (MVP)",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "android:init": "npm run build && npx --yes @capacitor/cli@7 add android",
+    "android:sync": "npm run build && npx --yes @capacitor/cli@7 sync android",
+    "android:open": "npx --yes @capacitor/cli@7 open android"
+  },
+  "dependencies": {
+    "phaser": "^3.90.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.4",
+    "typescript": "^5.9.3",
+    "vite": "^6.4.3",
+    "vitest": "^3.2.7"
+  }
+}

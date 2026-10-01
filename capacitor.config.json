@@ -1,0 +1,6 @@
+{
+  "appId": "com.echoisland.game",
+  "appName": "Echo Island",
+  "webDir": "dist",
+  "android": { "backgroundColor": "#2b9fd0" }
+}
