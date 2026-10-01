@@ -362,16 +362,23 @@ export class UI {
     this.hud.hidden = true;
   }
 
-  /** Refresh at most once per frame. */
-  refreshHud(): void {
+  /**
+   * Refresh at most once per frame. Open panels are only refreshed when game state changed,
+   * not on the once-a-second clock tick.
+   */
+  refreshHud(panels = true): void {
+    this.panelsQueued ||= panels;
     if (this.hudQueued) return;
     this.hudQueued = true;
     requestAnimationFrame(() => {
       this.hudQueued = false;
       this.renderHud();
-      if (this.panelId && this.panelId !== 'settings') this.renderPanel();
+      if (this.panelsQueued && this.panelId && this.panelId !== 'settings') this.renderPanel();
+      this.panelsQueued = false;
     });
   }
+
+  private panelsQueued = false;
 
   private renderHud(): void {
     const g = this.game;
@@ -638,17 +645,20 @@ export class UI {
   private renderPanel(): void {
     const id = this.panelId;
     if (!id) return;
-    const scroll = this.panelEl?.querySelector('.panel-body')?.scrollTop ?? 0;
-    this.panelEl?.remove();
     const body = this.panelBody(id);
+    // Already open: update the contents in place (no re-animation), and only if something changed.
+    const open = this.panelEl?.querySelector(`.panel-${id} .panel-body`);
+    if (open) {
+      if (open.firstElementChild?.outerHTML !== body.outerHTML) open.replaceChildren(body);
+      return;
+    }
+    this.panelEl?.remove();
     this.panelEl = h('div', { class: 'modal-wrap', onclick: (e: Event) => { if (e.target === this.panelEl) this.closePanel(); } },
       h('div', { class: `panel panel-${id}`, role: 'dialog', 'aria-label': t(`panel.${id}`) },
         h('header', {}, h('h2', {}, t(`panel.${id}`)), h('button', { class: 'close', 'aria-label': t('common.close'), onclick: () => this.closePanel() }, '✕')),
         h('div', { class: 'panel-body' }, body),
       ));
     this.root.append(this.panelEl);
-    const b = this.panelEl.querySelector('.panel-body');
-    if (b) b.scrollTop = scroll;
   }
 
   private panelBody(id: PanelId): HTMLElement {
