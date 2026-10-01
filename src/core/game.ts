@@ -139,7 +139,8 @@ export class Game {
 
   timeLabel(): string {
     const h = Math.floor(this.hour);
-    const m = Math.floor(this.state.world.minutes % 60);
+    // shown in calm 10-minute steps, so the HUD clock changes only every few seconds
+    const m = Math.floor((this.state.world.minutes % 60) / 10) * 10;
     return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
   }
 

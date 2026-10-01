@@ -387,11 +387,18 @@ export class UI {
     const xp = levelProgress(s.player.xp, PLAYER_XP_LEVELS);
     const hm = levelProgress(s.island.harmony, ISLAND_HARMONY_LEVELS);
     const corruption = s.island.corruption.forest;
-    clear(this.hudStatus);
-    this.hudStatus.append(
-      h('div', { class: 'hud-line' },
-        h('strong', {}, t(`zone.${this.zone}`)),
-        h('span', { class: 'muted' }, `${t('hud.day', { day: g.day })} · ${g.timeLabel()}`)),
+    // The header (zone + clock) is persistent; only its text changes, so the clock never redraws the box.
+    if (!this.hudZone) {
+      this.hudZone = h('strong', {});
+      this.hudClock = h('span', { class: 'muted' });
+      this.hudBody = h('div', {});
+      this.hudStatus.append(h('div', { class: 'hud-line' }, this.hudZone, this.hudClock), this.hudBody);
+    }
+    const zone = t(`zone.${this.zone}`);
+    const clock = `${t('hud.day', { day: g.day })} · ${g.timeLabel()}`;
+    if (this.hudZone.textContent !== zone) this.hudZone.textContent = zone;
+    if (this.hudClock!.textContent !== clock) this.hudClock!.textContent = clock;
+    const body = h('div', {},
       h('div', { class: 'hearts', role: 'img', 'aria-label': t('hud.health', { hp: s.player.health, max: g.maxHealth() }), title: t('hud.health', { hp: s.player.health, max: g.maxHealth() }) },
         Array.from({ length: g.maxHealth() }, (_, i) => h('span', { class: i < s.player.health ? 'heart' : 'heart empty' }, i < s.player.health ? '❤️' : '🤍'))),
       h('div', { class: 'hud-line' },
@@ -403,7 +410,13 @@ export class UI {
       h('div', { class: 'hud-meter', title: t('hud.island_level_hint') },
         h('span', {}, `🌿 ${t('hud.island_level', { level: s.island.level })}`), bar(hm.pct, 'harmony')),
     );
+    // Only touch the DOM when something visible actually changed.
+    if (body.innerHTML !== this.hudBody!.innerHTML) this.hudBody!.replaceChildren(...body.childNodes);
   }
+
+  private hudZone: HTMLElement | null = null;
+  private hudClock: HTMLElement | null = null;
+  private hudBody: HTMLElement | null = null;
 
   setZone(zone: ZoneId): void {
     this.zone = zone;
