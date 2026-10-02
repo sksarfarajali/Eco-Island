@@ -677,5 +677,6 @@
   "creature.skyhare.bonded_line": "Skyhare thumps its foot — that means it loves you.",
   "creature.thistlegoat.bonded_line": "Thistlegoat gently bumps your hand with its horns.",
   "creature.archowl.bonded_line": "Archowl hoots softly, like it remembers you from long ago.",
-  "creature.wispling.bonded_line": "Wispling glows warm and bright."
+  "creature.wispling.bonded_line": "Wispling glows warm and bright.",
+  "hud.collapse_hint": "Tap to fold or unfold the status box"
 }

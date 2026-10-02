@@ -196,8 +196,6 @@ export abstract class PlayScene extends Phaser.Scene {
     this.createNight();
 
     const cam = this.cameras.main;
-    const { w, h } = this.worldSize();
-    cam.setBounds(0, 0, w, h);
     cam.setBackgroundColor(this.backgroundColor());
     this.applyZoom();
     this.scale.on('resize', this.applyZoom, this);
@@ -284,6 +282,12 @@ export abstract class PlayScene extends Phaser.Scene {
     const fill = Math.max(this.scale.width / w, this.scale.height / h);
     const zoom = Math.max(base, Math.min(fill, base * 1.35));
     cam.setZoom(zoom);
+    // Let the camera scroll a little past the map edges so things at the edge (like the temple gate)
+    // can always be moved out from under the HUD (status box on top, joystick and buttons below).
+    const padTop = 290 / zoom;
+    const padBottom = 240 / zoom;
+    const padX = 100 / zoom;
+    cam.setBounds(-padX, -padTop, w + padX * 2, h + padTop + padBottom);
     this.night.resize(Math.ceil(this.scale.width / zoom) + NIGHT_MARGIN * 2, Math.ceil(this.scale.height / zoom) + NIGHT_MARGIN * 2);
   }
 
@@ -551,8 +555,6 @@ export abstract class PlayScene extends Phaser.Scene {
   private updateInteractables(): void {
     const list: Interactable[] = [];
     this.collectInteractables(list);
-    if (this.follower) list.push(this.creatureInteractable('glowfox', this.follower));
-    this.interactables = list;
     let best: Interactable | null = null;
     let bestD = INTERACT_RANGE;
     for (const i of list) {
@@ -562,6 +564,14 @@ export abstract class PlayScene extends Phaser.Scene {
         bestD = d;
       }
     }
+    // The companion always walks right next to Nova, so it is only offered when nothing else is in reach;
+    // otherwise it would hide doors and entrances (e.g. "Pet Lumifox" instead of "Enter Ancient Temple").
+    if (this.follower) {
+      const pet = this.creatureInteractable('glowfox', this.follower);
+      list.push(pet);
+      if (!best && Math.hypot(pet.x - this.player.x, pet.y - this.player.y) < INTERACT_RANGE) best = pet;
+    }
+    this.interactables = list;
     this.current = best;
     const fight = this.enemyInReach();
     // hysteresis: show combat controls under 260px, hide only beyond 320px, so they never flicker

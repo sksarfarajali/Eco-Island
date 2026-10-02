@@ -309,7 +309,23 @@ export class UI {
   // ------------------------------------------------------------------ HUD
 
   private buildHud(): void {
-    this.hudStatus = h('div', { class: 'hud-status' });
+    // Tap the status box to fold it down to one line (so it never hides the world on small screens).
+    this.hudStatus = h('div', {
+      class: 'hud-status',
+      role: 'button',
+      tabindex: 0,
+      'aria-expanded': 'true',
+      title: t('hud.collapse_hint'),
+      onclick: () => this.toggleHudStatus(),
+      onkeydown: (e: Event) => {
+        if ((e as KeyboardEvent).key === 'Enter') this.toggleHudStatus();
+      },
+    });
+    try {
+      if (localStorage.getItem('echo-island-hud-collapsed') === '1') this.hudStatus.classList.add('collapsed');
+    } catch {
+      // storage unavailable: start expanded
+    }
     const btn = (id: PanelId, icon: string, key: string) =>
       h('button', { class: 'hud-btn', 'aria-label': t(key), title: t(key), onclick: () => this.togglePanel(id) }, h('span', { 'aria-hidden': 'true' }, icon), h('em', {}, t(key)));
     this.promptEl = h('button', { class: 'prompt', hidden: true, onclick: () => this.actions.interact() });
@@ -350,6 +366,16 @@ export class UI {
       joystick,
     );
     this.root.append(this.hud, this.toasts);
+  }
+
+  private toggleHudStatus(): void {
+    const collapsed = this.hudStatus.classList.toggle('collapsed');
+    this.hudStatus.setAttribute('aria-expanded', String(!collapsed));
+    try {
+      localStorage.setItem('echo-island-hud-collapsed', collapsed ? '1' : '0');
+    } catch {
+      // per-device convenience only
+    }
   }
 
   showHud(): void {
@@ -887,6 +913,13 @@ export class UI {
       caves: 'crystal_caves', temple: 'ancient_temple', highlands: 'highlands', grove: 'shadow_grove',
     };
     const known = (z: string) => s.discoveries.places.includes(PLACE[z]);
+    // You can travel to any place you have found, and to any area whose entrance is open.
+    const reachable = (z: string) =>
+      known(z) ||
+      z === 'caves' ||
+      z === 'highlands' ||
+      (z === 'temple' && s.world.templeOpen) ||
+      (z === 'grove' && s.island.visuals.includes('grove_gate_open'));
     for (let ty = 0; ty < 44; ty++) {
       for (let tx = 0; tx < 64; tx++) {
         if (!isLand(tx, ty)) continue;
@@ -931,8 +964,8 @@ export class UI {
     ctx.font = '12px system-ui, sans-serif';
     for (const [z, x, y, icon] of marks) ctx.fillText(known(z) ? icon : '❔', (x + 0.5) * sx, (y + 1) * sy);
     const travelBtn = (z: ZoneId) =>
-      h('button', { class: 'btn', disabled: !known(z) || z === this.zone, onclick: () => { this.closePanel(); this.actions.travel(z); } },
-        known(z) ? t('map.travel', { name: t(`zone.${z}`) }) : t('map.unknown'));
+      h('button', { class: 'btn', disabled: !reachable(z) || z === this.zone, onclick: () => { this.closePanel(); this.actions.travel(z); } },
+        reachable(z) ? t('map.travel', { name: t(`zone.${z}`) }) : t('map.unknown'));
     return h('div', {},
       canvas,
       h('p', { class: 'muted' }, t('map.hint')),
