@@ -116,6 +116,7 @@ export class Game {
     rng: () => number = Math.random,
   ) {
     this.rng = rng;
+    this.reconcileQuests();
   }
 
   // ---------------------------------------------------------------- time
@@ -689,8 +690,33 @@ export class Game {
         return Math.min(o.count, this.state.world.debrisCleared.length);
       case 'bond':
         return this.state.creatures[o.creature].state === 'bonded' ? 1 : 0;
+      // things the player may already have done before accepting the quest
+      case 'find':
+        return o.target === 'sun_key' && this.state.world.sunKeyFound ? 1 : 0;
+      case 'trials':
+        return this.state.world.temple.solved.filter(Boolean).length;
+      case 'rescue':
+        return this.state.world.skyhareFreed ? 1 : 0;
+      case 'evolve':
+        return Object.values(this.state.creatures).some((c) => c.evolved) ? 1 : 0;
+      case 'boss':
+        return this.state.world.ending ? 1 : 0;
       default:
         return 0;
+    }
+  }
+
+  /**
+   * Bring every active quest up to date with what the player has already done, so a quest
+   * can never get stuck because its goal was reached before it was accepted (also repairs older saves).
+   */
+  reconcileQuests(): void {
+    for (const id of QUEST_ORDER) {
+      const q = this.state.quests[id];
+      if (q.status !== 'active') continue;
+      const o = QUESTS[id].objective;
+      q.progress = Math.max(q.progress, Math.min(o.count, this.initialProgress(o)));
+      if (q.progress >= o.count) this.completeQuest(id);
     }
   }
 
