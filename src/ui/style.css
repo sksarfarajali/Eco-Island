@@ -548,3 +548,10 @@ button:focus-visible, label.btn:focus-visible, input:focus-visible, select:focus
 @media (max-width: 480px) and (orientation: portrait) {
   .combat-bar:not(.desktop) { right: calc(env(safe-area-inset-right) + 16px); }
 }
+/* collapsible status box: tap to fold it to a single line */
+.hud-status { cursor: pointer; user-select: none; -webkit-user-select: none; }
+.hud-status::after { content: '▴'; position: absolute; right: 10px; bottom: 2px; font-size: 0.7rem; color: var(--muted); }
+.hud-status.collapsed::after { content: '▾'; }
+.hud-status.collapsed { width: auto; padding: 6px 26px 6px 12px; }
+.hud-status.collapsed > div:not(:first-child) { display: none; }
+.hud-status.collapsed .hud-line { gap: 8px; }
