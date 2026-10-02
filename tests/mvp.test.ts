@@ -275,3 +275,29 @@ describe('save migration v2 → v3', () => {
     expect(s.world.templeOpen).toBe(true);
   });
 });
+
+describe('quests never get stuck', () => {
+  it('trials solved before accepting the temple quest still count, and the finale opens', () => {
+    const g = newGame();
+    for (const n of RUNE_ORDER) g.activateRune(n);
+    TEMPLE_MIRRORS.forEach((_, i) => g.toggleMirror(i));
+    const plates = objectsOf(AREAS.temple, 'P');
+    for (let i = 0; i < 2; i++) while (g.state.world.temple.blocks[i][0] < plates[i].tx) g.pushBlock(i, 1, 0);
+    g.state.quests.q_temple.status = 'available';
+    g.acceptQuest('q_temple');
+    expect(g.state.quests.q_temple.status).toBe('done');
+    expect(g.state.quests.q_finale.status).toBe('active');
+  });
+
+  it('an older save with an active quest whose goal is already met is repaired on load', () => {
+    const s = newGameState();
+    s.world.temple.solved = [true, true, true];
+    s.quests.q_temple = { status: 'active', progress: 0 };
+    s.world.sunKeyFound = true;
+    s.quests.q_caves = { status: 'active', progress: 0 };
+    const g = new Game(s);
+    expect(g.state.quests.q_temple.status).toBe('done');
+    expect(g.state.quests.q_caves.status).toBe('done');
+    expect(g.state.quests.q_finale.status).toBe('active');
+  });
+});
