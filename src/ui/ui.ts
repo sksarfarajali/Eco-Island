@@ -432,9 +432,9 @@ export class UI {
         corruption ? h('span', { class: 'corrupt', title: t('hud.corruption') }, `🌲🌑 ${corruption}/3`) : null,
         s.island.corruption.lake ? h('span', { class: 'corrupt', title: t('hud.lake_corruption') }, `💧🌑 ${s.island.corruption.lake}/3`) : null),
       h('div', { class: 'hud-meter', title: t('hud.player_level_hint') },
-        h('span', {}, `⭐ ${t('hud.player_level', { level: s.player.level })}`), bar(xp.pct, 'xp')),
+        h('span', {}, `⭐ ${t('hud.player_level', { level: s.player.level })}${xp.next === null ? ` · ${t('hud.max')}` : ''}`), bar(xp.pct, 'xp')),
       h('div', { class: 'hud-meter', title: t('hud.island_level_hint') },
-        h('span', {}, `🌿 ${t('hud.island_level', { level: s.island.level })}`), bar(hm.pct, 'harmony')),
+        h('span', {}, `🌿 ${t('hud.island_level', { level: s.island.level })}${hm.next === null ? ` · ${t('hud.max')}` : ''}`), bar(hm.pct, 'harmony')),
     );
     // Only touch the DOM when something visible actually changed.
     if (body.innerHTML !== this.hudBody!.innerHTML) this.hudBody!.replaceChildren(...body.childNodes);
