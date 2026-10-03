@@ -36,6 +36,10 @@ export function computeMetrics(s: GameState): Metrics {
     skyhare_choice: s.choices.find((c) => c.id === 'skyhare_choice')?.value ?? '',
     ending: s.world.ending ?? '',
     corruption_lake: s.island.corruption.lake,
+    decor_placed: Object.values(s.world.decor).filter(Boolean).length,
+    boat_repaired: s.world.boatRepaired ? 1 : 0,
+    reef_healed: s.world.reefHealed.length,
+    festivals: s.world.festivals.length,
   };
 }
 

@@ -2,7 +2,9 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { AWAY_CAP_SECONDS, GROW, MINUTES_PER_SECOND } from '../src/core/config';
-import { BUILDINGS, CREATURES, DISCOVERY_CATALOG, DISCOVERY_MILESTONES, ITEMS, QUESTS, RECIPES } from '../src/core/content';
+import { ACHIEVEMENTS } from '../src/core/achievements';
+import { BUILDINGS, CREATURES, DECOR_ORDER, DISCOVERY_CATALOG, DISCOVERY_MILESTONES, ITEMS, QUESTS, RECIPES, SEASONS } from '../src/core/content';
+import { DAILY_KINDS } from '../src/core/daily';
 import { DEFAULT_RULES, Game } from '../src/core/game';
 import { applyTimeAway } from '../src/core/growth';
 import { hasKey, t } from '../src/core/i18n';
@@ -161,11 +163,11 @@ describe('localization (PRD 23: all player-visible text in language files)', () 
       if (q.giver !== 'pip') keys.push(`quest.${id}.offer`, `quest.${id}.reminder`);
     }
     for (const r of DEFAULT_RULES) for (const e of r.then) if (e.startsWith('toast:')) keys.push(e.slice(6));
-    for (const npc of ['rocco', 'luna', 'zed', 'tilly']) keys.push(`${npc}.intro`, `npc.${npc}`, `${npc}.ending_heal`, `${npc}.ending_seal`);
+    for (const npc of ['rocco', 'luna', 'zed', 'tilly', 'marina']) keys.push(`${npc}.intro`, `npc.${npc}`, `${npc}.ending_heal`, `${npc}.ending_seal`);
     for (const b of Object.keys(BUILDINGS)) keys.push(`building.${b}`, `building.${b}.desc`);
     for (const r of Object.keys(RECIPES)) keys.push(`recipe.${r}`, `recipe.${r}.desc`);
     for (const c of Object.values(CREATURES)) if (c.evolution) keys.push(`evo.${c.evolution.into}`);
-    for (const a of ['caves', 'temple', 'highlands', 'grove']) keys.push(`area.${a}.first`, `zone.${a}`);
+    for (const a of ['caves', 'temple', 'highlands', 'grove', 'isle']) keys.push(`area.${a}.first`, `zone.${a}`);
     for (const e of ['heal', 'seal']) {
       keys.push(`ending.title_${e}`, `ending.body_${e}`, `finale.after_${e}_1`, `finale.after_${e}_2`, `pip.ending_${e}`, `choice.final_choice.${e}`);
     }
@@ -183,7 +185,16 @@ describe('localization (PRD 23: all player-visible text in language files)', () 
     for (const c of Object.keys(CREATURES)) keys.push(`creature.${c}.bonded_line`);
     for (const st of ['unknown', 'observed', 'friendly', 'bonded']) keys.push(`cstate.${st}`);
     for (const m of ['happy', 'sad', 'excited']) keys.push(`mood.${m}`);
-    for (const p of ['journal', 'book', 'bag', 'build', 'shop', 'map', 'companion', 'settings']) keys.push(`panel.${p}`);
+    for (const p of ['journal', 'book', 'bag', 'build', 'shop', 'map', 'companion', 'settings', 'kitchen']) keys.push(`panel.${p}`);
+    for (const k of DAILY_KINDS) keys.push(`daily.${k}`);
+    for (const a of ACHIEVEMENTS) keys.push(`badge.${a.id}`, `badge.${a.id}.desc`);
+    for (const d of DECOR_ORDER) keys.push(`decor.${d}`, `decor.${d}.desc`);
+    for (const s of SEASONS) keys.push(`festival.${s}`);
+    for (const b of ['swift', 'hearty', 'lucky', 'strong']) keys.push(`buff.${b}`, `buff.${b}.desc`);
+    for (const w of ['rain', 'fog', 'snow']) keys.push(`pip.weather_${w}`, `pip.weather_start_${w}`);
+    for (const m of ['seek', 'race']) keys.push(`play.offer_${m}`, `play.start_${m}`, `minigame.${m}_won`, `minigame.${m}_lost`, `minigame.${m}_prize`);
+    for (const f of ['none', 'warm', 'dreamy', 'vintage', 'mono']) keys.push(`photo.filter_${f}`);
+    for (const r of DEFAULT_RULES) for (const e of r.then) if (e.startsWith('cosmetic:')) keys.push(`cosmetic.${e.slice(9)}.icon`);
     expect(keys.filter((k) => !hasKey(k))).toEqual([]);
   });
 

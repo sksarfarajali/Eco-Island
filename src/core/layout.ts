@@ -108,6 +108,28 @@ export const PLOTS: readonly PlotDef[] = [
   { id: 'plot6', x: px(10), y: px(36), islandLevel: 3 },
   { id: 'plot7', x: px(16), y: px(36), islandLevel: 4 },
   { id: 'plot8', x: px(21), y: px(37), islandLevel: 5 },
+  { id: 'plot9', x: px(14), y: px(14), islandLevel: 6 },
+  { id: 'plot10', x: px(26), y: px(17), islandLevel: 7 },
+  { id: 'plot11', x: px(5), y: px(20), islandLevel: 8 },
+  { id: 'plot12', x: px(27), y: px(33), islandLevel: 9 },
+];
+
+export interface DecorSlot {
+  id: string;
+  x: number;
+  y: number;
+  /** Porch slots belong to a building plot and open once a house stands there. */
+  plot?: string;
+}
+
+/** Places in Whisper Village where decorations can stand, plus one porch spot beside each house. */
+export const DECOR_SLOTS: readonly DecorSlot[] = [
+  ...([[19, 22.5], [9, 26], [22, 25], [18, 28.5], [14, 30], [9, 20], [24, 20], [4, 29], [28, 27]] as const).map(([x, y], i) => ({
+    id: `d${i + 1}`,
+    x: px(x),
+    y: px(y),
+  })),
+  ...PLOTS.map((p) => ({ id: `porch_${p.id}`, x: p.x + 46, y: p.y + 22, plot: p.id })),
 ];
 
 /** Points of interest (world pixels). */
@@ -136,6 +158,12 @@ export const POI = {
   caveEntrance: { x: px(6), y: px(9) },
   highlandsPath: { x: px(60), y: px(29) },
   dockEnd: { x: px(38), y: px(33) },
+  kitchen: { x: px(19.5), y: px(25) },
+  festival: { x: px(12.5), y: px(25) },
+  boat: { x: px(36), y: px(33) },
+  raceFinish: { x: px(59), y: px(34) },
+  snowkit: { x: px(40), y: px(16) },
+  petalbee: { x: px(13), y: px(17) },
 } as const;
 
 /** Zone travel destinations for the map's fast travel. */
@@ -153,6 +181,7 @@ export const STATIC_BLOCKERS: { x: number; y: number; w: number; h: number }[] =
   { x: POI.templeGate.x, y: POI.templeGate.y, w: 110, h: 34 },
   { x: POI.caveEntrance.x, y: POI.caveEntrance.y - 6, w: 90, h: 30 },
   { x: POI.highlandsPath.x + 14, y: POI.highlandsPath.y - 8, w: 40, h: 30 },
+  { x: POI.kitchen.x, y: POI.kitchen.y - 2, w: 26, h: 16 },
 ];
 
 /** Paths drawn on the ground (tile polylines). */

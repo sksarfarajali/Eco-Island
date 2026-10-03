@@ -38,8 +38,9 @@ export const INVULN_MS = 900;
 /** Defeat loses at most this share of the common resources gathered on the current trip (PRD 14). */
 export const DEFEAT_LOSS_SHARE = 0.2;
 
+/** Hearts grow every second level, up to 10 (meals can add a little more for a while). */
 export function maxHealth(level: number): number {
-  return 5 + Math.floor((level - 1) / 2);
+  return Math.min(10, 5 + Math.floor((level - 1) / 2));
 }
 
 export function attackDamage(level: number, bonus: number): number {

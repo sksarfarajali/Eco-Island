@@ -24,6 +24,46 @@ export function canvasTex(scene: Phaser.Scene, key: string, w: number, h: number
   tex.refresh();
 }
 
+/**
+ * Give an existing canvas texture a soft dark outline so characters pop against any background.
+ * The outline is the sprite's own silhouette stamped around it.
+ */
+export function outlineTexture(scene: Phaser.Scene, key: string, color = 'rgba(43,33,53,0.85)', width = 1.1): void {
+  if (!scene.textures.exists(key)) return;
+  const tex = scene.textures.get(key) as Phaser.Textures.CanvasTexture;
+  if (!(tex instanceof Phaser.Textures.CanvasTexture) || (tex as unknown as { outlined?: boolean }).outlined) return;
+  const canvas = tex.getCanvas();
+  const art = document.createElement('canvas');
+  art.width = canvas.width;
+  art.height = canvas.height;
+  art.getContext('2d')!.drawImage(canvas, 0, 0);
+  const sil = document.createElement('canvas');
+  sil.width = canvas.width;
+  sil.height = canvas.height;
+  const sctx = sil.getContext('2d')!;
+  sctx.drawImage(art, 0, 0);
+  sctx.globalCompositeOperation = 'source-in';
+  sctx.fillStyle = color;
+  sctx.fillRect(0, 0, sil.width, sil.height);
+  const ctx = tex.getContext();
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const d = width * RES;
+  for (let a = 0; a < 8; a++) {
+    ctx.drawImage(sil, Math.round(Math.cos((a / 8) * Math.PI * 2) * d), Math.round(Math.sin((a / 8) * Math.PI * 2) * d));
+  }
+  ctx.drawImage(art, 0, 0);
+  tex.refresh();
+  (tex as unknown as { outlined?: boolean }).outlined = true;
+}
+
+/** Every character, creature and enemy texture that gets an outline. */
+export const OUTLINED = [
+  'npc_rocco', 'npc_luna', 'npc_zed', 'npc_tilly', 'npc_marina', 'pip_happy', 'pip_sad', 'pip_excited',
+  'glowfox', 'ripplet', 'mossprite', 'sunchick', 'gleamwing', 'pebblepup', 'skyhare', 'thistlegoat',
+  'archowl', 'wispling', 'lumifox', 'moonshell', 'gloomling', 'egg',
+  'shellcrab', 'seapup', 'petalbee', 'snowkit',
+];
+
 export const ellipse = (ctx: Ctx, x: number, y: number, rx: number, ry: number, fill: string) => {
   ctx.fillStyle = fill;
   ctx.beginPath();
@@ -54,49 +94,110 @@ interface PersonLook {
   backpack?: boolean;
 }
 
-/** Draw a chibi character in a 28x40 box, feet at the bottom centre. */
-export function drawPerson(ctx: Ctx, look: PersonLook): void {
-  const dark = shade(look.outfit, -0.35);
-  // legs
-  rrect(ctx, 9, 30, 4, 9, 2, '#4a3b56');
-  rrect(ctx, 15, 30, 4, 9, 2, '#4a3b56');
+/**
+ * Draw a chibi character in a 28x40 box, feet at the bottom centre.
+ * `step` 0 = standing, 1/2 = walking poses (legs and arms swing).
+ */
+export function drawPerson(ctx: Ctx, look: PersonLook, step: 0 | 1 | 2 = 0): void {
+  const dark = shade(look.outfit, -0.3);
+  const light = shade(look.outfit, 0.3);
+  const pants = shade(look.outfit, -0.55);
+  const legL = step === 1 ? -1.5 : step === 2 ? 1 : 0;
+  const legR = step === 2 ? -1.5 : step === 1 ? 1 : 0;
+  // legs and shoes
+  rrect(ctx, 9, 29 + legL, 4.5, 8, 2, pants);
+  rrect(ctx, 14.5, 29 + legR, 4.5, 8, 2, pants);
+  ellipse(ctx, 11, 37.5 + legL, 3.6, 2, '#5a3a24');
+  ellipse(ctx, 17, 37.5 + legR, 3.6, 2, '#5a3a24');
+  ellipse(ctx, 10.2, 36.9 + legL, 1.4, 0.6, 'rgba(255,255,255,0.35)');
+  ellipse(ctx, 16.2, 36.9 + legR, 1.4, 0.6, 'rgba(255,255,255,0.35)');
   // backpack
-  if (look.backpack) rrect(ctx, 3, 19, 6, 11, 2, '#a0703c', '#6d4a24');
-  // body
-  rrect(ctx, 7, 18, 14, 14, 5, look.outfit, dark);
-  rrect(ctx, 12, 19, 4, 12, 2, shade(look.outfit, 0.25));
-  // arms
-  rrect(ctx, 4, 20, 4, 9, 2, look.outfit);
-  rrect(ctx, 20, 20, 4, 9, 2, look.outfit);
-  circle(ctx, 6, 29, 2, look.skin);
-  circle(ctx, 22, 29, 2, look.skin);
-  // head
-  circle(ctx, 14, 11, 9, look.skin);
-  // hair
+  if (look.backpack) {
+    rrect(ctx, 2.5, 18, 7, 12, 2.5, '#b07a45', '#6d4a24');
+    rrect(ctx, 3.5, 22, 5, 3, 1, '#d9a35c');
+  }
+  // body with soft shading, collar and belt
+  const body = ctx.createLinearGradient(7, 17, 21, 31);
+  body.addColorStop(0, light);
+  body.addColorStop(1, dark);
+  ctx.beginPath();
+  ctx.roundRect(7, 17.5, 14, 13.5, 5);
+  ctx.fillStyle = body;
+  ctx.fill();
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath();
+  ctx.moveTo(10.5, 18);
+  ctx.lineTo(14, 21.5);
+  ctx.lineTo(17.5, 18);
+  ctx.closePath();
+  ctx.fill();
+  rrect(ctx, 7.5, 27, 13, 2, 1, '#5a3a24');
+  rrect(ctx, 12.8, 26.8, 2.4, 2.4, 0.6, '#ffd84a');
+  // arms swing while walking
+  const armL = step === 1 ? 1.5 : step === 2 ? -1.5 : 0;
+  const armR = -armL;
+  rrect(ctx, 3.8, 19 + armL, 4.2, 9, 2, look.outfit);
+  rrect(ctx, 20, 19 + armR, 4.2, 9, 2, look.outfit);
+  circle(ctx, 5.9, 28.3 + armL, 2.1, look.skin);
+  circle(ctx, 22.1, 28.3 + armR, 2.1, look.skin);
+  // head: ears, face, rosy cheeks
+  circle(ctx, 5.3, 11.5, 2, look.skin);
+  circle(ctx, 22.7, 11.5, 2, look.skin);
+  const face = ctx.createRadialGradient(12, 9, 2, 14, 11, 10);
+  face.addColorStop(0, shade(look.skin, 0.15));
+  face.addColorStop(1, look.skin);
+  ctx.fillStyle = face;
+  ctx.beginPath();
+  ctx.arc(14, 11, 9.3, 0, Math.PI * 2);
+  ctx.fill();
+  // hair with a shine streak
   ctx.fillStyle = look.hair;
   ctx.beginPath();
-  ctx.arc(14, 10, 9.5, Math.PI * 1.05, Math.PI * 1.95);
-  ctx.lineTo(23, 10);
-  ctx.quadraticCurveTo(18, 6, 14, 8);
-  ctx.quadraticCurveTo(9, 6, 5, 11);
+  ctx.arc(14, 10, 9.8, Math.PI * 1.02, Math.PI * 1.98);
+  ctx.lineTo(23.6, 11);
+  ctx.quadraticCurveTo(20, 6.5, 16, 8.2);
+  ctx.quadraticCurveTo(13.5, 5.5, 10.5, 8.6);
+  ctx.quadraticCurveTo(7, 7.5, 4.4, 11);
   ctx.fill();
-  if (look.hat === 'bun') circle(ctx, 14, 1.5, 4, look.hair);
-  if (look.hat === 'braids') {
-    rrect(ctx, 3, 10, 4, 12, 2, look.hair);
-    rrect(ctx, 21, 10, 4, 12, 2, look.hair);
-  }
-  // eyes + cheeks
-  circle(ctx, 10.5, 12, 1.4, '#2b2135');
-  circle(ctx, 17.5, 12, 1.4, '#2b2135');
-  circle(ctx, 11, 11.5, 0.5, '#fff');
-  circle(ctx, 18, 11.5, 0.5, '#fff');
-  ellipse(ctx, 8.5, 15, 1.8, 1.1, 'rgba(255,120,120,0.45)');
-  ellipse(ctx, 19.5, 15, 1.8, 1.1, 'rgba(255,120,120,0.45)');
-  ctx.strokeStyle = '#7a3b3b';
-  ctx.lineWidth = 0.9;
+  ctx.strokeStyle = shade(look.hair, 0.35);
+  ctx.lineWidth = 1.1;
   ctx.beginPath();
-  ctx.arc(14, 14.5, 2, 0.15 * Math.PI, 0.85 * Math.PI);
+  ctx.arc(14, 10, 7.5, Math.PI * 1.2, Math.PI * 1.45);
   ctx.stroke();
+  if (look.hat === 'bun') {
+    circle(ctx, 14, 1.2, 4.2, look.hair);
+    circle(ctx, 12.8, 0.3, 1.2, shade(look.hair, 0.35));
+  }
+  if (look.hat === 'braids') {
+    rrect(ctx, 2.5, 10, 4, 13, 2, look.hair);
+    rrect(ctx, 21.5, 10, 4, 13, 2, look.hair);
+    circle(ctx, 4.5, 23, 1.8, '#ff7aa8');
+    circle(ctx, 23.5, 23, 1.8, '#ff7aa8');
+  }
+  // big friendly eyes: white, coloured iris, pupil, two highlights
+  for (const ex of [10.4, 17.6]) {
+    ellipse(ctx, ex, 12.3, 2, 2.4, '#ffffff');
+    ellipse(ctx, ex, 12.6, 1.55, 1.95, '#4a3a8c');
+    circle(ctx, ex, 12.8, 0.9, '#1d1530');
+    circle(ctx, ex - 0.6, 11.8, 0.6, '#ffffff');
+    circle(ctx, ex + 0.5, 13.6, 0.3, '#ffffff');
+  }
+  // eyebrows
+  ctx.strokeStyle = shade(look.hair, -0.2);
+  ctx.lineWidth = 0.8;
+  ctx.beginPath();
+  ctx.moveTo(8.8, 9.2);
+  ctx.lineTo(11.6, 8.9);
+  ctx.moveTo(16.4, 8.9);
+  ctx.lineTo(19.2, 9.2);
+  ctx.stroke();
+  ellipse(ctx, 7.9, 15.1, 1.9, 1.1, 'rgba(255,110,130,0.5)');
+  ellipse(ctx, 20.1, 15.1, 1.9, 1.1, 'rgba(255,110,130,0.5)');
+  // smile
+  ctx.fillStyle = '#8a3b3b';
+  ctx.beginPath();
+  ctx.arc(14, 15, 1.7, 0.1 * Math.PI, 0.9 * Math.PI);
+  ctx.fill();
   if (look.goggles) {
     ctx.strokeStyle = '#2d7f86';
     ctx.lineWidth = 1.4;
@@ -104,20 +205,29 @@ export function drawPerson(ctx: Ctx, look: PersonLook): void {
     ctx.moveTo(4, 6.5);
     ctx.lineTo(24, 6.5);
     ctx.stroke();
-    circle(ctx, 10, 6, 2.8, '#79e0e8');
-    circle(ctx, 18, 6, 2.8, '#79e0e8');
+    circle(ctx, 10, 6, 2.9, '#2d7f86');
+    circle(ctx, 18, 6, 2.9, '#2d7f86');
+    circle(ctx, 10, 6, 2.1, '#9ff3ff');
+    circle(ctx, 18, 6, 2.1, '#9ff3ff');
+    circle(ctx, 9.3, 5.3, 0.6, '#ffffff');
+    circle(ctx, 17.3, 5.3, 0.6, '#ffffff');
   }
   if (look.hat === 'hard') {
-    ctx.fillStyle = '#f7c531';
+    const hat = ctx.createLinearGradient(5, 0, 23, 8);
+    hat.addColorStop(0, '#ffe066');
+    hat.addColorStop(1, '#f2b81e');
+    ctx.fillStyle = hat;
     ctx.beginPath();
-    ctx.arc(14, 7, 9, Math.PI, 0);
+    ctx.arc(14, 7, 9.2, Math.PI, 0);
     ctx.fill();
-    rrect(ctx, 3, 6, 22, 3, 1.5, '#e0a81e');
+    rrect(ctx, 2.5, 6, 23, 3, 1.5, '#d99a12');
+    rrect(ctx, 13, -1.5, 2, 6, 1, '#d99a12');
   }
   if (look.hat === 'wide') {
-    ellipse(ctx, 14, 5.5, 13, 3, '#7a5230');
-    rrect(ctx, 8, -1, 12, 7, 3, '#8f6238');
-    rrect(ctx, 8, 3, 12, 1.6, 0.5, '#d94f3d');
+    ellipse(ctx, 14, 5.5, 13.5, 3.2, '#7a5230');
+    rrect(ctx, 8, -1.5, 12, 7.5, 3, '#8f6238');
+    rrect(ctx, 8, 3, 12, 1.7, 0.5, '#d94f3d');
+    circle(ctx, 18.5, 1.5, 1.3, '#ffd84a');
   }
 }
 
@@ -139,12 +249,19 @@ const NPC_LOOKS: Record<NpcId, PersonLook> = {
   luna: { skin: SKIN[0], hair: '#e9e4f5', outfit: '#7b5fd6', hat: 'bun', goggles: true },
   zed: { skin: SKIN[3], hair: '#1d1410', outfit: '#3f8f4f', hat: 'wide' },
   tilly: { skin: SKIN[1], hair: '#8a3b2a', outfit: '#ef7fa6', hat: 'braids' },
+  marina: { skin: SKIN[2], hair: '#2a9d8f', outfit: '#ff8c69', hat: 'bun' },
 };
 
 /** Nova, wearing any cosmetics earned from Discovery Book milestones. */
 export function makeNovaTexture(scene: Phaser.Scene, a: Appearance, cosmetics: string[] = []): string {
   const key = `nova_${a.skin}${a.hair}${a.outfit}_${[...cosmetics].sort().join('-')}`;
   if (scene.textures.exists(key)) return key;
+  // standing pose plus two walking poses (key_1, key_2)
+  for (const step of [0, 1, 2] as const) drawNova(scene, step ? `${key}_${step}` : key, a, cosmetics, step);
+  return key;
+}
+
+function drawNova(scene: Phaser.Scene, key: string, a: Appearance, cosmetics: string[], step: 0 | 1 | 2): void {
   canvasTex(scene, key, 32, 44, (ctx) => {
     ctx.translate(2, 4);
     if (cosmetics.includes('star_cape')) {
@@ -158,18 +275,61 @@ export function makeNovaTexture(scene: Phaser.Scene, a: Appearance, cosmetics: s
       ctx.fill();
       [[8, 30], [18, 27], [14, 34]].forEach(([x, y]) => circle(ctx, x, y, 1.2, '#ffe27a'));
     }
-    drawPerson(ctx, novaLook(a));
+    drawPerson(ctx, novaLook(a), step);
     if (cosmetics.includes('friend_scarf')) rrect(ctx, 7, 17, 14, 4, 2, '#ff7aa8');
-    if (cosmetics.includes('explorer_hat')) {
+    // only one hat at a time: the grandest one earned
+    if (cosmetics.includes('golden_crown')) {
+      ctx.fillStyle = '#ffd84a';
+      ctx.beginPath();
+      ctx.moveTo(7, 4);
+      ctx.lineTo(8, -3);
+      ctx.lineTo(11, 1);
+      ctx.lineTo(14, -4);
+      ctx.lineTo(17, 1);
+      ctx.lineTo(20, -3);
+      ctx.lineTo(21, 4);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = '#c89a1c';
+      ctx.lineWidth = 0.8;
+      ctx.stroke();
+      circle(ctx, 14, 1.5, 1.4, '#ff6ab0');
+    } else if (cosmetics.includes('sun_hat')) {
+      ellipse(ctx, 14, 4, 13, 3.2, '#f6d77a');
+      rrect(ctx, 8.5, -2.5, 11, 7, 3.5, '#ffe27a');
+      rrect(ctx, 8.5, 1.8, 11, 1.6, 0.5, '#ff7aa8');
+    } else if (cosmetics.includes('explorer_hat')) {
       ellipse(ctx, 14, 3.5, 12, 3, '#c8a06a');
       rrect(ctx, 8, -3, 12, 7, 3, '#d9b47c');
       rrect(ctx, 8, 1.5, 12, 1.6, 0.5, '#3aa6d8');
+    } else if (cosmetics.includes('party_hat')) {
+      ctx.fillStyle = '#7b5fd6';
+      ctx.beginPath();
+      ctx.moveTo(9.5, 3);
+      ctx.lineTo(14, -6);
+      ctx.lineTo(18.5, 3);
+      ctx.closePath();
+      ctx.fill();
+      [[12, 0], [15.5, -1.5], [14, 2]].forEach(([x, y]) => circle(ctx, x, y, 0.9, '#ffd84a'));
+      circle(ctx, 14, -6, 1.6, '#ff7aa8');
     }
   });
-  return key;
+  outlineTexture(scene, key);
 }
 
 function drawPip(ctx: Ctx, mood: PipMood): void {
+  // little translucent wings
+  ctx.save();
+  ctx.translate(6, 3);
+  for (const dir of [-1, 1]) {
+    ctx.fillStyle = 'rgba(214,250,255,0.85)';
+    ctx.beginPath();
+    ctx.ellipse(12 + dir * 11, 9, 5, 3, dir * -0.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(111,208,240,0.9)';
+    ctx.lineWidth = 0.7;
+    ctx.stroke();
+  }
   const g = ctx.createRadialGradient(12, 11, 2, 12, 12, 11);
   g.addColorStop(0, '#ffffff');
   g.addColorStop(0.5, '#bff3ff');
@@ -219,6 +379,7 @@ function drawPip(ctx: Ctx, mood: PipMood): void {
   }
   ellipse(ctx, 6, 15.5, 1.5, 1, 'rgba(255,130,160,0.5)');
   ellipse(ctx, 18, 15.5, 1.5, 1, 'rgba(255,130,160,0.5)');
+  ctx.restore();
 }
 
 /** Create every static texture used by the world. */
@@ -227,7 +388,7 @@ export function makeTextures(scene: Phaser.Scene): void {
   (Object.keys(NPC_LOOKS) as NpcId[]).forEach((id) =>
     canvasTex(scene, `npc_${id}`, 28, 40, (ctx) => drawPerson(ctx, NPC_LOOKS[id])),
   );
-  (['happy', 'sad', 'excited'] as PipMood[]).forEach((m) => canvasTex(scene, `pip_${m}`, 24, 24, (ctx) => drawPip(ctx, m)));
+  (['happy', 'sad', 'excited'] as PipMood[]).forEach((m) => canvasTex(scene, `pip_${m}`, 36, 28, (ctx) => drawPip(ctx, m)));
 
   canvasTex(scene, 'crown', 24, 10, (ctx) => {
     ['#ff7aa8', '#ffd84a', '#ff7aa8', '#9be36a', '#ffd84a'].forEach((c, i) => circle(ctx, 3 + i * 4.5, 5, 2.6, c));

@@ -1,4 +1,4 @@
-import { AWAY_CAP_SECONDS, AWAY_MIN_SECONDS, FISH_PRESSURE_DECAY, GARDEN_MAX_PRODUCE, GROW, MINUTES_PER_SECOND } from './config';
+import { AWAY_CAP_SECONDS, AWAY_MIN_SECONDS, FISH_PRESSURE_DECAY, GARDEN_MAX_PRODUCE, GROW, MINUTES_PER_SECOND, RAIN_GROWTH } from './config';
 import { NODE_BY_ID } from './layout';
 import type { GameState } from './types';
 
@@ -27,12 +27,15 @@ export function processGrowth(s: GameState, minutes: number): GrowthSummary {
   s.world.minutes += minutes;
   s.island.fishPressure = Math.max(0, s.island.fishPressure - minutes / FISH_PRESSURE_DECAY);
   const forestSlow = s.island.corruption.forest >= 2 ? 0.5 : 1;
+  // rain waters saplings and gardens (only while the rain lasts)
+  const rainMinutes = s.world.weather?.kind === 'rain' ? Math.min(minutes, Math.max(0, s.world.weather.until - (s.world.minutes - minutes))) : 0;
+  const watered = minutes + rainMinutes * (RAIN_GROWTH - 1);
 
   for (const [id, node] of Object.entries(s.world.nodes)) {
     if (node.timer <= 0) continue;
     const def = NODE_BY_ID[id];
     const rate = def?.zone === 'forest' ? forestSlow : 1;
-    node.timer -= minutes * rate;
+    node.timer -= (node.stage === 'sapling' ? watered : minutes) * rate;
     if (node.timer > 0) continue;
     node.timer = 0;
     if (node.stage === 'sapling') {
@@ -52,7 +55,7 @@ export function processGrowth(s: GameState, minutes: number): GrowthSummary {
   for (const [plotId, building] of Object.entries(s.world.plots)) {
     if (building !== 'garden') continue;
     let produce = s.world.gardenProduce[plotId] ?? 0;
-    let timer = (s.world.gardenTimer[plotId] ?? GROW.garden) - minutes;
+    let timer = (s.world.gardenTimer[plotId] ?? GROW.garden) - watered;
     while (timer <= 0 && produce < GARDEN_MAX_PRODUCE) {
       produce = Math.min(GARDEN_MAX_PRODUCE, produce + 2);
       out.produce += 2;

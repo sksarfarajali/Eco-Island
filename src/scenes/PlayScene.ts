@@ -16,9 +16,10 @@ import { INTERACT_RANGE } from '../core/config';
 import { CREATURES, ITEMS } from '../core/content';
 import type { Dialog, Game } from '../core/game';
 import { t } from '../core/i18n';
-import type { AreaId, BuildingId, CreatureId, Settings, ZoneId } from '../core/types';
-import { RES, makeNovaTexture, makeTextures } from './art';
+import type { AreaId, BuildingId, CreatureId, MinigameKind, Settings, ZoneId } from '../core/types';
+import { OUTLINED, RES, makeNovaTexture, makeTextures, outlineTexture } from './art';
 import { makeMvpTextures } from './art2';
+import { makeExtraTextures } from './art3';
 
 /** Callbacks from the world to the HTML UI. */
 export interface SceneHooks {
@@ -34,6 +35,9 @@ export interface SceneHooks {
   travel(area: AreaId, arrive: string): void;
   combat(active: boolean): void;
   bossBar(hp: number, max: number): void;
+  openKitchen(): void;
+  /** Mini-game status line (null hides it). */
+  minigame(text: string | null): void;
 }
 
 export interface WorldData {
@@ -73,6 +77,16 @@ export interface Enemy {
   /** Boss-only data. */
   boss?: { phase: 'chase' | 'slam' | 'charge' | 'exposed'; ring: Phaser.GameObjects.Image; core: Phaser.GameObjects.Image; target: { x: number; y: number }; summoned: number };
 }
+
+interface Particle {
+  sprite: Phaser.GameObjects.Image;
+  vx: number;
+  vy: number;
+  spin: number;
+  phase: number;
+}
+
+type ParticleKind = 'raindrop' | 'snowflake' | 'petal' | 'leaf' | 'firefly' | null;
 
 interface Projectile {
   sprite: Phaser.GameObjects.Image;
@@ -188,9 +202,20 @@ export abstract class PlayScene extends Phaser.Scene {
     return '#2b9fd0';
   }
 
+  /** Is this map under the open sky (weather and season particles)? */
+  protected outdoor(): boolean {
+    return true;
+  }
+
   create(): void {
     makeTextures(this);
     makeMvpTextures(this);
+    makeExtraTextures(this);
+    OUTLINED.forEach((k) => outlineTexture(this, k));
+    this.particles = [];
+    this.particleKind = null;
+    this.fogs = [];
+    this.photoMode = false;
     this.buildWorld();
     this.createPlayer();
     this.createNight();
@@ -223,6 +248,7 @@ export abstract class PlayScene extends Phaser.Scene {
       this.input.keyboard?.removeAllListeners();
       this.hooks.combat(false);
       this.hooks.bossBar(0, 0);
+      this.hooks.minigame(null);
     });
     this.hooks.prompt(null);
     this.syncAll();
@@ -249,7 +275,8 @@ export abstract class PlayScene extends Phaser.Scene {
     const start = this.arrivalPoint();
     const shadow = this.add.image(0, 0, 'shadow').setScale(1 / RES);
     const p = this.game_.state.player;
-    this.novaSprite = this.add.image(0, 2, makeNovaTexture(this, p.appearance, p.cosmetics)).setOrigin(0.5, 1).setScale(1 / RES);
+    this.novaKey = makeNovaTexture(this, p.appearance, p.cosmetics);
+    this.novaSprite = this.add.image(0, 2, this.novaKey).setOrigin(0.5, 1).setScale(1 / RES);
     this.shieldIcon = this.add.image(12, -10, 'shield').setScale(0.8 / RES).setVisible(false);
     this.player = this.add.container(start.x, start.y, [shadow, this.novaSprite, this.shieldIcon]);
     this.player.setVisible(this.mode === 'play');
@@ -265,6 +292,7 @@ export abstract class PlayScene extends Phaser.Scene {
     const fox = this.game_.state.creatures.glowfox;
     if (this.mode === 'play' && fox.state === 'bonded') {
       this.follower = img(this, start.x + 30, start.y + 10, fox.evolved ? 'lumifox' : 'glowfox');
+      this.breathe(this.follower);
     }
   }
 
@@ -406,6 +434,12 @@ export abstract class PlayScene extends Phaser.Scene {
       if (this.dirty) this.syncAll();
       return;
     }
+    // a new day, season or weather changes how the world looks
+    const sky = `${this.game_.day}|${this.game_.weather()}`;
+    if (sky !== this.lastSky) {
+      this.lastSky = sky;
+      this.dirty = true;
+    }
     if (!this.paused) {
       this.tickAcc += dt;
       if (this.tickAcc >= 1) {
@@ -422,6 +456,7 @@ export abstract class PlayScene extends Phaser.Scene {
     this.updateInteractables();
     this.updateSense();
     this.updateNight();
+    this.updateSky(time, dt);
     if (!this.paused && time > this.chatterAt) {
       this.chatterAt = time + 70000 + Math.random() * 40000;
       this.pipSay(this.game_.pipChatter());
@@ -481,7 +516,7 @@ export abstract class PlayScene extends Phaser.Scene {
       vy /= len;
     }
     const dodging = this.time.now < this.dodgeUntil;
-    let speed = SPEED * (this.blocking ? 0.45 : 1);
+    let speed = SPEED * this.game_.speedMultiplier() * (this.blocking ? 0.45 : 1);
     if (dodging) {
       speed = SPEED * 3.2;
       if (len < 0.05) {
@@ -500,16 +535,53 @@ export abstract class PlayScene extends Phaser.Scene {
       if (this.moveTarget && before.x === this.player.x && before.y === this.player.y) this.moveTarget = null;
       if (Math.abs(vx) > 0.1) this.facing = vx > 0 ? 1 : -1;
       this.walkTime += dt;
+      this.stepAcc += dt * (speed / SPEED);
+      if (this.stepAcc > 0.3) {
+        this.stepAcc = 0;
+        this.game_.events.emit('sfx', this.footstepSound());
+      }
     } else {
       this.walkTime = 0;
     }
     this.novaSprite.setFlipX(this.facing < 0);
-    this.novaSprite.y = moving && !this.settings.reducedMotion ? 2 - Math.abs(Math.sin(this.walkTime * 12)) * 3 : 2;
+    // walk cycle: stand, left step, stand, right step
+    const frame = moving ? [0, 1, 0, 2][Math.floor(this.walkTime * 9) % 4] : 0;
+    const key = frame ? `${this.novaKey}_${frame}` : this.novaKey;
+    if (this.novaSprite.texture.key !== key) this.novaSprite.setTexture(key);
+    this.novaSprite.y = moving && !this.settings.reducedMotion ? 2 - Math.abs(Math.sin(this.walkTime * 14)) * 2 : 2;
     this.player.setDepth(this.player.y);
     const pos = this.game_.state.player.position;
     pos.x = Math.round(this.player.x);
     pos.y = Math.round(this.player.y);
     this.checkZone();
+  }
+
+  private stepAcc = 0;
+  private lastSky = '';
+  private novaKey = '';
+  private trailAcc = 0;
+
+  /** Footsteps sound different on grass, sand, stone and fallen leaves. */
+  protected footstepSound(): 'step_grass' | 'step_sand' | 'step_stone' | 'step_leaves' {
+    switch (this.zone) {
+      case 'caves':
+      case 'temple':
+        return 'step_stone';
+      case 'lake':
+      case 'isle':
+        return 'step_sand';
+      case 'grove':
+        return 'step_leaves';
+      default:
+        return 'step_grass';
+    }
+  }
+
+  /** Gentle idle "breathing" so villagers and creatures feel alive (a slow squash, never a flash). */
+  protected breathe(sprite: Phaser.GameObjects.Image, delay = 0): void {
+    if (this.settings.reducedMotion) return;
+    const base = sprite.scaleY;
+    this.tweens.add({ targets: sprite, scaleY: base * 1.045, scaleX: sprite.scaleX * 0.985, duration: 1100 + Math.random() * 400, delay, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
   }
 
   protected canStand(x: number, y: number, r = 8): boolean {
@@ -532,6 +604,18 @@ export abstract class PlayScene extends Phaser.Scene {
     this.pip.x += (tx - this.pip.x) * f;
     this.pip.y += (ty - this.pip.y) * f;
     this.pipSprite.setTexture(`pip_${this.game_.state.pip.mood}`);
+    // a soft sparkle trail behind Pip while it flies
+    this.trailAcc += dt;
+    const flying = Math.hypot(tx - this.pip.x, ty - this.pip.y) > 6;
+    if (flying && this.trailAcc > 0.09 && !this.settings.reducedMotion && this.settings.graphics !== 'low') {
+      this.trailAcc = 0;
+      const sp = this.add
+        .image(this.pip.x + (Math.random() - 0.5) * 8, this.pip.y + 6, 'spark')
+        .setScale(0.7 / RES)
+        .setTint([0xbff3ff, 0xfff6b0, 0xffc8e6][Math.floor(Math.random() * 3)])
+        .setDepth(19999);
+      this.tweens.add({ targets: sp, y: sp.y + 10, alpha: 0, scale: 0.2 / RES, duration: 600, onComplete: () => sp.destroy() });
+    }
   }
 
   private updateFollower(dt: number): void {
@@ -612,6 +696,20 @@ export abstract class PlayScene extends Phaser.Scene {
       label,
       enabled: true,
       act: () => {
+        const play = cs.state === 'bonded' && !g.canEvolve(id) ? this.playOffer(id) : null;
+        if (play) {
+          g.interactCreature(id, { x: sprite.x, y: sprite.y });
+          this.hooks.dialog({
+            npc: 'pip',
+            speaker: 'Pip',
+            lines: [t(`play.offer_${play}`, { name })],
+            options: [
+              { id: `play:${play}`, label: t(`play.start_${play}`) },
+              { id: 'later', label: t('dialog.later') },
+            ],
+          });
+          return;
+        }
         if (g.canEvolve(id)) {
           const evo = CREATURES[id].evolution!;
           const cost = Object.entries(evo.cost).map(([i, n]) => `${n} ${ITEMS[i as keyof typeof ITEMS].icon}`).join(' ');
@@ -629,6 +727,137 @@ export abstract class PlayScene extends Phaser.Scene {
         this.report(g.interactCreature(id, { x: sprite.x, y: sprite.y }));
       },
     };
+  }
+
+  /** Which mini-game a bonded creature offers here (none by default). */
+  protected playOffer(_id: CreatureId): MinigameKind | null {
+    return null;
+  }
+
+  // ---------------------------------------------------------------- photo mode
+
+  protected photoMode = false;
+
+  setPhotoMode(on: boolean): void {
+    this.photoMode = on;
+    this.setPaused(on);
+    this.senseArrow?.setVisible(false);
+    if (on) {
+      this.game_.state.pip.mood = 'excited';
+      this.moveTarget = null;
+      this.joystick = { x: 0, y: 0 };
+      this.hooks.prompt(null);
+      this.lastPromptKey = '';
+    } else {
+      this.applyZoom();
+    }
+  }
+
+  /** Zoom the camera for a closer photo (1 = normal). */
+  setPhotoZoom(f: number): void {
+    this.applyZoom();
+    const cam = this.cameras.main;
+    cam.setZoom(cam.zoom * f);
+  }
+
+  // ---------------------------------------------------------------- weather & seasons
+
+  private particles: Particle[] = [];
+  private particleKind: ParticleKind = null;
+  private fogs: Phaser.GameObjects.Image[] = [];
+
+  /** Fog is thicker in the highlands, and there is always morning mist up there. */
+  protected fogLevel(): number {
+    return this.game_.weather() === 'fog' ? 0.55 : 0;
+  }
+
+  private wantedParticles(): { kind: ParticleKind; count: number } {
+    const g = this.game_;
+    if (!this.outdoor() || this.settings.reducedMotion) return { kind: null, count: 0 };
+    const scale = this.settings.graphics === 'low' ? 0.4 : this.settings.graphics === 'medium' ? 0.7 : 1;
+    const w = g.weather();
+    const season = g.season();
+    let kind: ParticleKind = null;
+    let count = 0;
+    if (w === 'rain') [kind, count] = ['raindrop', 140];
+    else if (w === 'snow') [kind, count] = ['snowflake', 90];
+    else if (season === 'spring') [kind, count] = ['petal', 22];
+    else if (season === 'autumn') [kind, count] = ['leaf', 22];
+    else if (season === 'winter') [kind, count] = ['snowflake', 20];
+    else if (season === 'summer' && g.darkness() > 0.5) [kind, count] = ['firefly', 26];
+    return { kind, count: Math.round(count * scale) };
+  }
+
+  private spawnParticle(kind: Exclude<ParticleKind, null>, v: Phaser.Geom.Rectangle, anywhere: boolean): Particle {
+    const x = v.x + Math.random() * v.width;
+    const y = anywhere ? v.y + Math.random() * v.height : v.y - 20;
+    const tex = kind === 'firefly' ? 'spark' : kind;
+    const sprite = this.add.image(x, y, tex).setScale(1 / RES).setDepth(45000);
+    let vx = 0;
+    let vy = 0;
+    if (kind === 'raindrop') {
+      vx = -40;
+      vy = 520 + Math.random() * 120;
+      sprite.setRotation(0.08).setAlpha(0.7);
+    } else if (kind === 'snowflake') {
+      vy = 30 + Math.random() * 30;
+      sprite.setScale((0.5 + Math.random() * 0.6) / RES);
+    } else if (kind === 'firefly') {
+      sprite.setTint(0xd8ff7a).setScale(0.8 / RES);
+    } else {
+      vx = 12 + Math.random() * 18;
+      vy = 22 + Math.random() * 20;
+    }
+    return { sprite, vx, vy, spin: (Math.random() - 0.5) * 3, phase: Math.random() * Math.PI * 2 };
+  }
+
+  private updateSky(time: number, dt: number): void {
+    const v = this.cameras.main.worldView;
+    const want = this.wantedParticles();
+    if (want.kind !== this.particleKind) {
+      this.particles.forEach((p) => p.sprite.destroy());
+      this.particles = [];
+      this.particleKind = want.kind;
+    }
+    const kind = this.particleKind;
+    while (kind && this.particles.length < want.count) this.particles.push(this.spawnParticle(kind, v, true));
+    while (this.particles.length > want.count) this.particles.pop()!.sprite.destroy();
+    for (const p of this.particles) {
+      const s = p.sprite;
+      if (kind === 'firefly') {
+        p.phase += dt;
+        s.x += Math.cos(p.phase * 0.7) * 12 * dt;
+        s.y += Math.sin(p.phase * 1.1) * 10 * dt;
+        s.setAlpha(0.35 + 0.65 * Math.abs(Math.sin(p.phase * 1.6)));
+      } else {
+        p.phase += dt;
+        s.x += (p.vx + (kind === 'raindrop' ? 0 : Math.sin(p.phase * 1.5) * 18)) * dt;
+        s.y += p.vy * dt;
+        if (kind !== 'raindrop') s.rotation += p.spin * dt;
+      }
+      // recycle anything that leaves the view
+      if (s.y > v.bottom + 20 || s.x < v.x - 40 || s.x > v.right + 40 || s.y < v.y - 60) {
+        s.setPosition(v.x + Math.random() * v.width, kind === 'firefly' ? v.y + Math.random() * v.height : v.y - 10 - Math.random() * 30);
+      }
+    }
+    // drifting fog banks
+    const fog = this.outdoor() ? this.fogLevel() : 0;
+    const banks = fog > 0 ? (this.settings.graphics === 'low' ? 5 : 9) : 0;
+    while (this.fogs.length < banks) {
+      const f = this.add
+        .image(v.x + Math.random() * v.width, v.y + Math.random() * v.height, 'fog')
+        .setScale((2.5 + Math.random() * 2) / RES)
+        .setDepth(46000);
+      this.fogs.push(f);
+    }
+    while (this.fogs.length > banks) this.fogs.pop()!.destroy();
+    for (const f of this.fogs) {
+      f.setAlpha(fog * 0.6);
+      if (!this.settings.reducedMotion) f.x += 10 * dt;
+      if (f.x - f.displayWidth / 2 > v.right) f.setPosition(v.x - f.displayWidth / 2, v.y + Math.random() * v.height);
+      if (f.y < v.y - 100 || f.y > v.bottom + 100) f.y = v.y + Math.random() * v.height;
+    }
+    void time;
   }
 
   // ---------------------------------------------------------------- combat
@@ -969,7 +1198,9 @@ export abstract class PlayScene extends Phaser.Scene {
 
   private updateNight(): void {
     const st = this.game_.state;
-    const dark = this.baseDarkness();
+    // grey skies dim the world a little
+    const w = this.outdoor() ? this.game_.weather() : 'clear';
+    const dark = Math.min(1, this.baseDarkness() + (w === 'rain' ? 0.25 : w === 'snow' ? 0.1 : 0));
     const glow = st.pip.abilities.includes('glow') && st.pip.enabled.glow;
     const maxAlpha = glow ? 0.66 : 0.45;
     const alpha = this.settings.graphics === 'low' ? dark * maxAlpha * 0.7 : dark * maxAlpha;
@@ -1030,7 +1261,8 @@ export abstract class PlayScene extends Phaser.Scene {
     this.burst(this.player.x, this.player.y - 20, 0xfff6b0, this.settings.graphics === 'low' ? 6 : 14);
     // cosmetics may have changed
     const p = this.game_.state.player;
-    this.novaSprite.setTexture(makeNovaTexture(this, p.appearance, p.cosmetics));
+    this.novaKey = makeNovaTexture(this, p.appearance, p.cosmetics);
+    this.novaSprite.setTexture(this.novaKey);
   }
 
   protected burst(x: number, y: number, tint: number, count: number): void {
