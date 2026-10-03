@@ -3,7 +3,7 @@ import { Game } from './core/game';
 import { applyTimeAway } from './core/growth';
 import { setLanguage, t } from './core/i18n';
 import { newGameState } from './core/state';
-import type { AreaId, Appearance, BuildingId, EggChoice, GameState, ItemId, Settings, ZoneId } from './core/types';
+import type { AreaId, Appearance, BuildingId, DecorId, EggChoice, GameState, ItemId, MinigameKind, Settings, ZoneId } from './core/types';
 import { Audio, type Mood } from './platform/audio';
 import { SaveStore, requestPersistentStorage } from './platform/saves';
 import { applySettingsToDocument, loadSettings, saveSettings } from './platform/settings';
@@ -58,8 +58,12 @@ export class App {
     setInterval(() => void this.saveNow(), AUTOSAVE_MS);
     // keep the HUD clock ticking (without touching open panels)
     setInterval(() => this.playing && this.ui.refreshHud(false), 1000);
-    // music and ambience follow the zone, the night and boss fights
-    setInterval(() => this.audio.setMood(this.mood()), 1000);
+    // music and ambience follow the zone, the night, festivals, the weather and boss fights
+    setInterval(() => {
+      this.audio.setMood(this.mood());
+      const outdoor = ['village', 'forest', 'lake', 'highlands', 'isle'].includes(this.currentZone);
+      this.audio.setWeather(this.playing && this.game && outdoor ? this.game.weather() : 'clear');
+    }, 1000);
     // a soft click for every button
     document.addEventListener('click', (e) => {
       const el = (e.target as HTMLElement).closest?.('button, .btn, .tab, .swatch');
@@ -96,7 +100,8 @@ export class App {
     if (!this.playing || !this.game) return 'menu';
     if (this.bossActive) return 'boss';
     const z = this.currentZone;
-    if ((z === 'village' || z === 'forest' || z === 'lake' || z === 'highlands') && this.game.darkness() > 0.6) return 'night';
+    if (z === 'village' && this.game.festivalToday()) return 'festival';
+    if ((z === 'village' || z === 'forest' || z === 'lake' || z === 'highlands' || z === 'isle') && this.game.darkness() > 0.6) return 'night';
     return z;
   }
 
@@ -184,7 +189,16 @@ export class App {
     this.enterPlay();
     void requestPersistentStorage();
     void this.saveNow(true);
-    this.ui.showDialog({ npc: 'pip', speaker: 'Pip', lines: [t('intro.1'), t('intro.2'), t('intro.3'), t('intro.4')] });
+    this.game!.refreshDaily();
+    this.ui.showDialog({ npc: 'pip', speaker: 'Pip', lines: [t('intro.1'), t('intro.2'), t('intro.3'), t('intro.4')] }, () => this.maybeShowLogin());
+  }
+
+  /** Offer today's login reward (once per calendar day). */
+  private maybeShowLogin(): void {
+    const r = this.game?.pendingLogin();
+    if (!r || !this.playing) return;
+    this.scene()?.setPaused(true);
+    this.ui.showLogin(r, () => this.scene()?.setPaused(false));
   }
 
   private continueGame(): void {
@@ -197,12 +211,17 @@ export class App {
     this.enterPlay();
     void requestPersistentStorage();
     void this.saveNow(true);
+    this.game!.refreshDaily();
     if (away) {
       this.scene()?.setPaused(true);
-      this.ui.showAway(away, () => this.scene()?.setPaused(false));
-    } else if (state.world.ending) {
+      this.ui.showAway(away, () => {
+        this.scene()?.setPaused(false);
+        this.maybeShowLogin();
+      });
+    } else {
       // finished games continue as a post-game sandbox
-      this.ui.info(t('ending.postgame'));
+      if (state.world.ending) this.ui.info(t('ending.postgame'));
+      this.maybeShowLogin();
     }
   }
 
@@ -297,6 +316,8 @@ export class App {
         this.bossActive = max > 0;
         this.ui.setBossBar(hp, max);
       },
+      openKitchen: () => this.ui.openPanel('kitchen'),
+      minigame: (text) => this.ui.setMinigame(text),
     };
   }
 
@@ -307,6 +328,10 @@ export class App {
       continueGame: () => this.continueGame(),
       respond: (id) => {
         const game = this.game!;
+        if (id.startsWith('play:')) {
+          this.island()?.startMinigame(id.slice(5) as MinigameKind);
+          return;
+        }
         report(game.respond(id));
         if (id.startsWith('egg:')) {
           const choice = id.slice(4) as EggChoice;
@@ -358,6 +383,7 @@ export class App {
           if (isl) isl.travelTo(zone);
           else this.travel('island', zone);
         } else {
+          if (zone === 'isle') this.audio.sfx('boat');
           this.travel(zone as AreaId, 'spawn');
         }
       },
@@ -421,6 +447,64 @@ export class App {
         this.installPrompt = null;
       },
       canInstall: () => this.installPrompt !== null,
+      cook: (meal) => report(this.game!.cook(meal)),
+      buyDecor: (id: DecorId) => report(this.game!.buyDecor(id)),
+      startDecor: (mode) => {
+        const isl = this.island();
+        if (!isl || this.game!.state.player.position.zone !== 'village') {
+          this.ui.info(t('decor.only_village'));
+          return;
+        }
+        isl.startDecorMode(mode);
+        this.ui.showDecorBar(true);
+      },
+      stopDecor: () => {
+        this.island()?.stopDecorMode();
+        this.ui.showDecorBar(false);
+      },
+      photo: (on) => this.scene()?.setPhotoMode(on),
+      photoZoom: (f) => this.scene()?.setPhotoZoom(f),
+      snapshot: (filter) => this.snapshot(filter),
+      claimLogin: () => report(this.game!.claimLogin()),
     };
+  }
+
+  /** Grab the current frame, apply the photo filter and add a polaroid-style frame with a caption. */
+  private snapshot(filter: string): Promise<string | null> {
+    const renderer = this.phaser?.renderer;
+    const game = this.game;
+    if (!renderer || !game) return Promise.resolve(null);
+    return new Promise((resolve) => {
+      renderer.snapshot((image) => {
+        const src = image as HTMLImageElement;
+        const draw = () => {
+          try {
+            const pad = Math.round(Math.min(src.width, src.height) * 0.035);
+            const strip = pad * 3;
+            const c = document.createElement('canvas');
+            c.width = src.width + pad * 2;
+            c.height = src.height + pad + strip;
+            const ctx = c.getContext('2d')!;
+            ctx.fillStyle = '#fffaf0';
+            ctx.fillRect(0, 0, c.width, c.height);
+            ctx.filter = filter;
+            ctx.drawImage(src, pad, pad);
+            ctx.filter = 'none';
+            ctx.fillStyle = '#2b2135';
+            ctx.font = `800 ${Math.round(strip * 0.42)}px Nunito, system-ui, sans-serif`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(t('photo.caption', { day: game.day, place: t(`zone.${this.currentZone}`) }), c.width / 2, src.height + pad + strip / 2);
+            game.photoTaken();
+            resolve(c.toDataURL('image/png'));
+          } catch (e) {
+            console.error('Photo failed', e);
+            resolve(null);
+          }
+        };
+        if (src.complete) draw();
+        else src.onload = draw;
+      });
+    });
   }
 }

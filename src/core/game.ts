@@ -1,7 +1,9 @@
 import rulesData from '../data/rules.json';
+import { ACHIEVEMENTS, ACHIEVEMENT_COINS } from './achievements';
 import { AREAS, RUNE_ORDER, RUNE_SYMBOLS, TEMPLE_MIRRORS, blockCanEnter, platesCovered, traceBeam } from './areas';
 import { ENEMIES, attackDamage, bossHealth, canHealHollow, defeatLoss, maxHealth, type EnemyKind } from './combat';
 import {
+  BOAT_COST,
   CLEANSE_PLANTS_NEEDED,
   CORRUPTION_MAX,
   EGG_SALE_PRICE,
@@ -11,35 +13,61 @@ import {
   HARVEST_PRESSURE_LIMIT,
   HARVEST_PRESSURE_WARN,
   ISLAND_HARMONY_LEVELS,
+  LOGIN_REWARDS,
+  MAX_GATHER_YIELD,
   MINUTES_PER_DAY,
   MINUTES_PER_SECOND,
   PLAYER_XP_LEVELS,
+  REEF_COST,
+  SEASON_DAYS,
+  WEATHER_MINUTES,
 } from './config';
-import { BUILDINGS, CREATURES, FOOD_ORDER, ITEMS, QUESTS, QUEST_ORDER, RECIPES, type QuestObjective } from './content';
+import {
+  BUILDINGS,
+  CREATURES,
+  CREATURE_ORDER,
+  DECOR,
+  FOOD_ORDER,
+  ITEMS,
+  MEALS,
+  QUESTS,
+  QUEST_ORDER,
+  RECIPES,
+  SEASONS,
+  type QuestObjective,
+} from './content';
+import { DAILY_BONUS, DAILY_POOL, dateKey, dayBefore, pickDaily } from './daily';
 import { Emitter } from './events';
 import { processGrowth, type GrowthSummary } from './growth';
 import { t } from './i18n';
-import { NODE_BY_ID, NODES, PLOTS, POI } from './layout';
+import { DECOR_SLOTS, NODE_BY_ID, NODES, PLOTS, POI } from './layout';
 import { dueRules, type WorldRule } from './rules';
 import type {
   AreaId,
+  BuffId,
   BuildingId,
   CreatureId,
+  DailyKind,
+  DecorId,
   DiscoveryCategory,
   EggChoice,
   Ending,
   GameState,
   ItemId,
   NpcId,
+  MinigameKind,
   PipAbility,
   QuestId,
+  Season,
+  WeatherKind,
   ZoneId,
 } from './types';
 
 export type SfxName =
   | 'collect' | 'chop' | 'mine' | 'success' | 'build' | 'error' | 'coin' | 'plant' | 'levelup' | 'magic' | 'splash'
   | 'hit' | 'hurt' | 'swing' | 'dodge' | 'block' | 'bite' | 'door'
-  | 'click' | 'step_grass' | 'step_sand' | 'step_stone' | 'step_leaves';
+  | 'click' | 'step_grass' | 'step_sand' | 'step_stone' | 'step_leaves'
+  | 'cook' | 'camera' | 'festival' | 'badge' | 'whistle' | 'giggle' | 'boat';
 
 export interface ToastEvent {
   text: string;
@@ -115,6 +143,8 @@ export class Game {
     public state: GameState,
     private rules: readonly WorldRule[] = DEFAULT_RULES,
     rng: () => number = Math.random,
+    /** Real-world clock (daily tasks and login rewards use calendar days). */
+    private clock: () => Date = () => new Date(),
   ) {
     this.rng = rng;
     this.reconcileQuests();
@@ -151,6 +181,9 @@ export class Game {
     this.state.stats.playSeconds += realSeconds;
     const growth = processGrowth(this.state, realSeconds * MINUTES_PER_SECOND);
     let changed = this.reportGrowth(growth);
+    if (this.tickBuffs(realSeconds)) changed = true;
+    if (this.updateWeather()) changed = true;
+    if (this.refreshDaily()) changed = true;
     // Nova slowly recovers while resting in Whisper Village.
     const p = this.state.player;
     if (p.position.area === 'island' && p.position.zone === 'village' && p.health < this.maxHealth()) {
@@ -173,6 +206,7 @@ export class Game {
     const until = (MINUTES_PER_DAY - minutesToday + 6 * 60) % MINUTES_PER_DAY || MINUTES_PER_DAY;
     const growth = processGrowth(this.state, until);
     this.reportGrowth(growth);
+    this.updateWeather();
     this.state.player.health = this.maxHealth();
     this.toast(t('msg.slept', { day: this.day }), 'info', '🌙');
     this.changed();
@@ -200,6 +234,7 @@ export class Game {
   // ---------------------------------------------------------------- helpers
 
   private changed(): void {
+    this.checkAchievements();
     this.events.emit('changed', undefined);
   }
 
@@ -264,7 +299,8 @@ export class Game {
 
   /** Gathering yield grows with Nova's level. */
   gatherYield(): number {
-    return 1 + Math.floor((this.state.player.level - 1) / 2);
+    const base = Math.min(MAX_GATHER_YIELD, 1 + Math.floor((this.state.player.level - 1) / 2));
+    return this.hasBuff('lucky') ? base * 2 : base;
   }
 
   discoveryCount(): number {
@@ -303,7 +339,7 @@ export class Game {
     pos.area = area;
     if (area === 'island') return null;
     pos.zone = AREAS[area].zone;
-    const place = { caves: 'crystal_caves', temple: 'ancient_temple', highlands: 'highlands', grove: 'shadow_grove' }[area];
+    const place = { caves: 'crystal_caves', temple: 'ancient_temple', highlands: 'highlands', grove: 'shadow_grove', isle: 'coral_isle' }[area];
     const first = this.discover('places', place);
     if (area === 'temple' && !this.state.pip.abilities.includes('echo')) {
       this.unlockAbility('echo');
@@ -348,6 +384,7 @@ export class Game {
       this.events.emit('sfx', 'chop');
       this.discover('plants', 'oak');
       this.progress('gather', 'wood', amount);
+      this.dailyProgress('wood', amount);
       if (def.zone === 'forest') this.addHarvestPressure();
     } else if (def.kind === 'rock') {
       node.stage = 'empty';
@@ -355,6 +392,7 @@ export class Game {
       this.give('stone', amount, at);
       this.events.emit('sfx', 'mine');
       this.progress('gather', 'stone', amount);
+      this.dailyProgress('stone', amount);
     } else if (def.kind === 'bush') {
       node.stage = 'empty';
       node.timer = GROW.bushRegrow;
@@ -362,6 +400,7 @@ export class Game {
       this.events.emit('sfx', 'collect');
       this.discover('plants', 'glow_berry');
       this.progress('gather', 'glow_berry', amount + 1);
+      this.dailyProgress('berries', amount + 1);
     } else {
       return { ok: false };
     }
@@ -390,6 +429,21 @@ export class Game {
       this.give('stone', amount, float);
       this.events.emit('sfx', 'mine');
       this.progress('gather', 'stone', amount);
+      this.dailyProgress('stone', amount);
+    } else if (kind === 'k') {
+      node.timer = GROW.crystalRegrow;
+      this.give('coral', amount, float);
+      this.events.emit('sfx', 'mine');
+      this.discover('plants', 'sea_coral');
+    } else if (kind === 'q') {
+      node.timer = GROW.bushRegrow;
+      this.give('shell', amount, float);
+      this.events.emit('sfx', 'collect');
+    } else if (kind === 'j') {
+      node.timer = GROW.bushRegrow;
+      this.give('coconut', amount, float);
+      this.events.emit('sfx', 'chop');
+      this.discover('plants', 'coconut_palm');
     } else {
       node.timer = GROW.bushRegrow;
       this.give('essence', 1, float);
@@ -468,6 +522,7 @@ export class Game {
     }
     if (def.kind === 'grove') this.discover('places', 'memory_grove');
     this.progress('plant', undefined, 1);
+    this.dailyProgress('plant', 1);
     this.runRules();
     this.changed();
     return { ok: true };
@@ -532,6 +587,7 @@ export class Game {
     this.state.world.gardenTimer[plotId] = GROW.garden;
     this.events.emit('sfx', 'collect');
     this.addXp(2);
+    this.dailyProgress('harvest', 1);
     this.changed();
     return { ok: true };
   }
@@ -559,6 +615,7 @@ export class Game {
     c.state = c.bond >= 100 ? 'bonded' : 'friendly';
     if (at) this.events.emit('float', { x: at.x, y: at.y - 24, text: c.state === 'bonded' ? '💛' : '♥' });
     this.events.emit('sfx', 'collect');
+    this.dailyProgress('feed', 1);
     if (c.state === 'bonded') {
       this.toast(t('msg.bonded', { name: t(`disc.${id}`) }), 'world', def.icon);
       this.addHarmony(10);
@@ -702,6 +759,10 @@ export class Game {
         return Object.values(this.state.creatures).some((c) => c.evolved) ? 1 : 0;
       case 'boss':
         return this.state.world.ending ? 1 : 0;
+      case 'repair':
+        return this.state.world.boatRepaired ? 1 : 0;
+      case 'reef':
+        return Math.min(o.count, this.state.world.reefHealed.length);
       default:
         return 0;
     }
@@ -824,7 +885,8 @@ export class Game {
       if (s.island.lakeRestored) return t('luna.lake_done');
       return egg ? t(`luna.egg_${egg}`) : t('luna.idle');
     }
-    if (npc === 'tilly') return t('tilly.idle', { houses: s.buildings.house });
+    if (npc === 'tilly') return this.festivalToday() ? t('tilly.festival') : t('tilly.idle', { houses: s.buildings.house });
+    if (npc === 'marina') return s.quests.q_reef.status === 'done' ? t('marina.reef_done') : t('marina.idle');
     if (s.buildings.workshop > 0) return t('rocco.workshop');
     if (s.island.treesPlanted >= 10) return t('rocco.forest_grew');
     return egg ? t(`rocco.egg_${egg}`) : t('rocco.idle');
@@ -849,6 +911,11 @@ export class Game {
     if (s.island.lakeRestored) options.push(t('pip.memory_lake'));
     if (s.island.treesPlanted > 0) options.push(t('pip.memory_trees', { n: s.island.treesPlanted }));
     if (this.darkness() > 0.5 && s.pip.abilities.includes('glow')) options.push(t('pip.night'));
+    const fest = this.festivalToday();
+    if (fest && !s.world.festivals.includes(this.festivalId())) options.push(t('pip.festival_today', { name: t(`festival.${fest}`) }));
+    if (s.world.weather.kind !== 'clear') options.push(t(`pip.weather_${s.world.weather.kind}`));
+    if (s.world.boatRepaired && !s.discoveries.places.includes('coral_isle')) options.push(t('pip.sail_hint'));
+    if (s.daily.tasks.some((d) => !d.done)) options.push(t('pip.daily_hint'));
     if (!options.length) options.push(t('pip.generic_1'), t('pip.generic_2'));
     return options[Math.floor(this.rng() * options.length)];
   }
@@ -857,11 +924,11 @@ export class Game {
   // ---------------------------------------------------------------- health & combat (PRD 14, App Flow 19)
 
   maxHealth(): number {
-    return maxHealth(this.state.player.level);
+    return maxHealth(this.state.player.level) + (this.hasBuff('hearty') ? 2 : 0);
   }
 
   attackDamage(): number {
-    return attackDamage(this.state.player.level, this.state.player.attackBonus);
+    return attackDamage(this.state.player.level, this.state.player.attackBonus) + (this.hasBuff('strong') ? 1 : 0);
   }
 
   /** Apply damage to Nova. Returns true when Nova is defeated. */
@@ -892,15 +959,22 @@ export class Game {
   }
 
   eat(item: ItemId): ActionResult {
-    const heal = ITEMS[item].heal;
+    const def = ITEMS[item];
+    const heal = def.heal;
     if (!heal) return { ok: false };
     if (!this.has(item)) return { ok: false, message: t('msg.no_item', { name: this.itemName(item) }) };
     const p = this.state.player;
-    if (p.health >= this.maxHealth()) return { ok: false, message: t('msg.full_health') };
+    // meals are worth eating for their boost even at full health
+    if (p.health >= this.maxHealth() && !def.buff) return { ok: false, message: t('msg.full_health') };
     this.state.inventory[item]--;
+    if (def.buff) {
+      const buffs = p.buffs;
+      buffs[def.buff.id] = Math.max(buffs[def.buff.id] ?? 0, def.buff.seconds);
+    }
     p.health = Math.min(this.maxHealth(), p.health + heal);
     this.events.emit('sfx', 'collect');
     this.changed();
+    if (def.buff) return { ok: true, message: t('msg.ate_buff', { name: this.itemName(item), buff: t(`buff.${def.buff.id}`), min: Math.round(def.buff.seconds / 60) }) };
     return { ok: true, message: t('msg.ate', { name: this.itemName(item) }) };
   }
 
@@ -915,6 +989,7 @@ export class Game {
     const def = ENEMIES[kind];
     this.state.world.enemiesDefeated++;
     this.addXp(def.xp);
+    this.dailyProgress('enemies', 1);
     for (const [item, n] of Object.entries(def.drop) as [ItemId, number][]) this.give(item, n, at);
     this.events.emit('sfx', 'hit');
     this.changed();
@@ -972,7 +1047,7 @@ export class Game {
       ...s.choices.map((c) => ({ label: t('journal.choice_row', { day: c.day, text: '' }).trim(), value: t(`choice.${c.id}.${c.value}`) })),
       { label: t('ending.trees'), value: String(s.island.treesPlanted) },
       { label: t('ending.buildings'), value: String(built) },
-      { label: t('ending.creatures'), value: `${bonded}/10` },
+      { label: t('ending.creatures'), value: `${bonded}/${CREATURE_ORDER.length}` },
       { label: t('ending.discoveries'), value: String(this.discoveryCount()) },
       { label: t('ending.changes'), value: String(s.stats.worldChanges) },
       { label: t('ending.days'), value: String(this.day) },
@@ -986,11 +1061,18 @@ export class Game {
     const s = this.state;
     const roll = this.rng();
     const bright = s.island.lakeRestored && s.island.corruption.lake === 0;
-    const fish: ItemId = bright && roll < 0.06 ? 'echo_koi' : bright && roll < 0.5 ? 'moonfish' : 'minnow';
+    // the reef waters around Coral Isle are rich in fish
+    const isle = s.player.position.area === 'isle';
+    const fish: ItemId = (bright || isle) && roll < (isle ? 0.1 : 0.06) ? 'echo_koi' : (bright || isle) && roll < 0.5 ? 'moonfish' : 'minnow';
     this.give(fish, 1);
     s.world.fishCaught++;
     this.addXp(3);
     this.events.emit('sfx', 'splash');
+    this.dailyProgress('fish', 1);
+    if (isle) {
+      this.changed();
+      return fish;
+    }
     s.island.fishPressure++;
     if (s.island.fishPressure >= FISH_PRESSURE_WARN && s.island.fishPressure < FISH_PRESSURE_WARN + 1) {
       this.events.emit('pipSay', { text: t('pip.fish_warning') });
@@ -1180,6 +1262,323 @@ export class Game {
     return { npc: 'pip', speaker: 'Pip', lines: [t('temple.heart_1'), t('temple.heart_2'), t('temple.heart_3')] };
   }
 
+  // ---------------------------------------------------------------- meals & boosts
+
+  hasBuff(id: BuffId): boolean {
+    return (this.state.player.buffs[id] ?? 0) > 0;
+  }
+
+  /** Nova's walking speed multiplier (Berry Pie makes Nova swift). */
+  speedMultiplier(): number {
+    return this.hasBuff('swift') ? 1.35 : 1;
+  }
+
+  private tickBuffs(seconds: number): boolean {
+    const buffs = this.state.player.buffs;
+    let expired = false;
+    for (const id of Object.keys(buffs) as BuffId[]) {
+      buffs[id] = (buffs[id] ?? 0) - seconds;
+      if ((buffs[id] ?? 0) <= 0) {
+        delete buffs[id];
+        expired = true;
+        this.toast(t('msg.buff_over', { buff: t(`buff.${id}`) }), 'info', '⏳');
+      }
+    }
+    if (expired) this.state.player.health = Math.min(this.state.player.health, this.maxHealth());
+    return expired;
+  }
+
+  /** Cook a meal at the village cooking pot. */
+  cook(meal: ItemId): ActionResult {
+    const cost = MEALS[meal];
+    if (!cost) return { ok: false };
+    if (Object.keys(this.missingFor(cost)).length) {
+      this.events.emit('sfx', 'error');
+      return { ok: false, message: t('msg.missing_resources') };
+    }
+    for (const [item, n] of Object.entries(cost) as [ItemId, number][]) this.state.inventory[item] -= n;
+    this.state.inventory[meal]++;
+    this.state.stats.mealsCooked++;
+    this.events.emit('sfx', 'cook');
+    this.addXp(4);
+    this.dailyProgress('cook', 1);
+    this.changed();
+    return { ok: true, message: t('msg.cooked', { name: this.itemName(meal) }) };
+  }
+
+  // ---------------------------------------------------------------- daily tasks & login rewards
+
+  today(): string {
+    return dateKey(this.clock());
+  }
+
+  /** Start a fresh set of daily tasks when the calendar day changes. Returns true when it did. */
+  refreshDaily(): boolean {
+    const d = this.state.daily;
+    const key = this.today();
+    if (d.date === key) return false;
+    d.date = key;
+    d.tasks = pickDaily(key, this.state);
+    d.bonusClaimed = false;
+    return true;
+  }
+
+  dailyProgress(kind: DailyKind, n: number): void {
+    this.refreshDaily();
+    const d = this.state.daily;
+    for (const task of d.tasks) {
+      if (task.kind !== kind || task.done) continue;
+      task.progress = Math.min(task.target, task.progress + n);
+      if (task.progress < task.target) continue;
+      task.done = true;
+      d.completed++;
+      const def = DAILY_POOL[kind];
+      this.addCoins(def.coins);
+      this.addXp(def.xp);
+      this.toast(t('msg.daily_done', { name: t(`daily.${kind}`, { n: task.target }), coins: def.coins }), 'quest', '📅');
+      this.events.emit('sfx', 'success');
+    }
+    if (d.tasks.length && d.tasks.every((x) => x.done) && !d.bonusClaimed) {
+      d.bonusClaimed = true;
+      this.addCoins(DAILY_BONUS.coins);
+      this.addHarmony(DAILY_BONUS.harmony);
+      this.state.inventory.seed += DAILY_BONUS.seed;
+      this.toast(t('msg.daily_bonus', { coins: DAILY_BONUS.coins }), 'reward', '🎁');
+    }
+  }
+
+  /** The login reward waiting today, or null if it was already collected. */
+  pendingLogin(): { streak: number; coins: number; first: boolean } | null {
+    const d = this.state.daily;
+    const today = this.today();
+    if (d.lastLogin === today) return null;
+    const streak = d.lastLogin === dayBefore(today) ? d.streak + 1 : 1;
+    return { streak, coins: LOGIN_REWARDS[(streak - 1) % LOGIN_REWARDS.length], first: d.lastLogin === '' };
+  }
+
+  claimLogin(): ActionResult {
+    const r = this.pendingLogin();
+    if (!r) return { ok: false };
+    const d = this.state.daily;
+    d.streak = r.streak;
+    d.lastLogin = this.today();
+    this.addCoins(r.coins);
+    this.addXp(5);
+    if (r.streak % LOGIN_REWARDS.length === 0) this.state.inventory.seed += 2;
+    this.changed();
+    return { ok: true, message: t('msg.login_claimed', { coins: r.coins }) };
+  }
+
+  // ---------------------------------------------------------------- badges
+
+  private checkAchievements(): void {
+    const got = this.state.achievements;
+    for (const a of ACHIEVEMENTS) {
+      if (got.includes(a.id) || !a.check(this.state)) continue;
+      got.push(a.id);
+      this.state.player.coins += ACHIEVEMENT_COINS;
+      this.toast(t('msg.badge', { name: t(`badge.${a.id}`), coins: ACHIEVEMENT_COINS }), 'reward', a.icon);
+      this.events.emit('sfx', 'badge');
+    }
+  }
+
+  // ---------------------------------------------------------------- seasons, festivals & weather
+
+  season(): Season {
+    return SEASONS[Math.floor((this.day - 1) / SEASON_DAYS) % SEASONS.length];
+  }
+
+  dayOfSeason(): number {
+    return ((this.day - 1) % SEASON_DAYS) + 1;
+  }
+
+  /** The last day of every season is a village festival. */
+  festivalToday(): Season | null {
+    return this.dayOfSeason() === SEASON_DAYS ? this.season() : null;
+  }
+
+  festivalId(): string {
+    return `${this.season()}_${Math.floor((this.day - 1) / (SEASON_DAYS * SEASONS.length))}`;
+  }
+
+  celebrateFestival(): ActionResult {
+    const fest = this.festivalToday();
+    if (!fest) return { ok: false, message: t('msg.no_festival', { days: SEASON_DAYS - this.dayOfSeason() }) };
+    const id = this.festivalId();
+    const w = this.state.world;
+    if (w.festivals.includes(id)) return { ok: false, message: t('msg.festival_done') };
+    w.festivals.push(id);
+    const decor = (Object.keys(DECOR) as DecorId[]).find((k) => DECOR[k].festival === fest)!;
+    w.decorOwned[decor] = (w.decorOwned[decor] ?? 0) + 1;
+    this.addCoins(30);
+    this.addXp(25);
+    this.addHarmony(15);
+    this.state.pip.mood = 'excited';
+    this.state.stats.worldChanges++;
+    this.events.emit('sfx', 'festival');
+    this.events.emit('worldChange', { id: `festival_${fest}` });
+    this.toast(t('msg.festival', { name: t(`festival.${fest}`), decor: t(`decor.${decor}`) }), 'world', DECOR[decor].icon);
+    this.runRules();
+    this.changed();
+    return { ok: true };
+  }
+
+  weather(): WeatherKind {
+    return this.state.world.weather.kind;
+  }
+
+  /** Roll new weather every six game hours. Returns true when it changed. */
+  private updateWeather(): boolean {
+    const w = this.state.world.weather;
+    const now = this.state.world.minutes;
+    if (now < w.until) return false;
+    const before = w.kind;
+    const table: Record<Season, [WeatherKind, number][]> = {
+      spring: [['rain', 0.35], ['fog', 0.1]],
+      summer: [['rain', 0.15]],
+      autumn: [['rain', 0.3], ['fog', 0.2]],
+      winter: [['snow', 0.45], ['fog', 0.1]],
+    };
+    let roll = this.rng();
+    let kind: WeatherKind = 'clear';
+    for (const [k, p] of table[this.season()]) {
+      if (roll < p) {
+        kind = k;
+        break;
+      }
+      roll -= p;
+    }
+    w.kind = kind;
+    w.until = (Math.floor(now / WEATHER_MINUTES) + 1) * WEATHER_MINUTES;
+    if (kind !== 'clear' && !this.state.stats.weatherSeen.includes(kind)) this.state.stats.weatherSeen.push(kind);
+    if (kind !== before && kind !== 'clear') this.events.emit('pipSay', { text: t(`pip.weather_start_${kind}`) });
+    return kind !== before;
+  }
+
+  // ---------------------------------------------------------------- decorations
+
+  decorSlotOpen(slotId: string): boolean {
+    const slot = DECOR_SLOTS.find((d) => d.id === slotId);
+    if (!slot) return false;
+    return !slot.plot || this.state.world.plots[slot.plot] === 'house';
+  }
+
+  buyDecor(id: DecorId): ActionResult {
+    const price = DECOR[id].price;
+    if (price === undefined) return { ok: false, message: t('msg.decor_festival_only') };
+    if (this.state.player.coins < price) {
+      this.events.emit('sfx', 'error');
+      return { ok: false, message: t('msg.not_enough_coins', { n: price - this.state.player.coins }) };
+    }
+    this.state.player.coins -= price;
+    const owned = this.state.world.decorOwned;
+    owned[id] = (owned[id] ?? 0) + 1;
+    this.events.emit('sfx', 'coin');
+    this.changed();
+    return { ok: true, message: t('msg.decor_bought', { name: t(`decor.${id}`) }) };
+  }
+
+  placeDecor(id: DecorId, slotId: string): ActionResult {
+    const w = this.state.world;
+    if (!this.decorSlotOpen(slotId)) return { ok: false, message: t('msg.decor_need_house') };
+    if (w.decor[slotId]) return { ok: false, message: t('msg.plot_occupied') };
+    if ((w.decorOwned[id] ?? 0) < 1) return { ok: false, message: t('msg.decor_none', { name: t(`decor.${id}`) }) };
+    w.decorOwned[id] = (w.decorOwned[id] ?? 0) - 1;
+    w.decor[slotId] = id;
+    this.events.emit('sfx', 'build');
+    if (!w.decorSeen.includes(id)) {
+      w.decorSeen.push(id);
+      this.addHarmony(DECOR[id].harmony);
+      this.addXp(5);
+    }
+    this.state.stats.worldChanges++;
+    this.runRules();
+    this.changed();
+    return { ok: true };
+  }
+
+  removeDecor(slotId: string): ActionResult {
+    const w = this.state.world;
+    const id = w.decor[slotId];
+    if (!id) return { ok: false };
+    w.decor[slotId] = null;
+    w.decorOwned[id] = (w.decorOwned[id] ?? 0) + 1;
+    this.events.emit('sfx', 'collect');
+    this.changed();
+    return { ok: true, message: t('msg.decor_removed', { name: t(`decor.${id}`) }) };
+  }
+
+  // ---------------------------------------------------------------- photo mode & mini-games
+
+  photoTaken(): void {
+    this.state.stats.photos++;
+    this.events.emit('sfx', 'camera');
+    this.dailyProgress('photo', 1);
+    this.changed();
+  }
+
+  /** Hide-and-seek with Glowfox or a race with Ripplet. The first win of each game day gives a prize. */
+  minigameResult(kind: MinigameKind, won: boolean): ActionResult {
+    const m = this.state.world.minigames;
+    this.dailyProgress('play', 1);
+    if (!won) {
+      this.addXp(2);
+      this.changed();
+      return { ok: true, message: t(`minigame.${kind}_lost`) };
+    }
+    if (kind === 'seek') m.seekWins++;
+    else m.raceWins++;
+    this.addXp(10);
+    let message = t(`minigame.${kind}_won`);
+    if (m.rewardDay[kind] !== this.day) {
+      m.rewardDay[kind] = this.day;
+      this.addCoins(15);
+      if (kind === 'seek') this.give('glow_berry', 3);
+      else this.give('moonfish', 1);
+      message = t(`minigame.${kind}_prize`);
+    }
+    this.events.emit('sfx', 'success');
+    this.changed();
+    return { ok: true, message };
+  }
+
+  // ---------------------------------------------------------------- Coral Isle
+
+  repairBoat(): ActionResult {
+    const w = this.state.world;
+    if (w.boatRepaired) return { ok: false };
+    if (this.state.quests.q_voyage.status !== 'active') return { ok: false, message: t('msg.boat_ask_zed') };
+    if (Object.keys(this.missingFor(BOAT_COST)).length) {
+      this.events.emit('sfx', 'error');
+      return { ok: false, message: t('msg.boat_needs') };
+    }
+    for (const [item, n] of Object.entries(BOAT_COST) as [ItemId, number][]) this.state.inventory[item] -= n;
+    w.boatRepaired = true;
+    this.events.emit('sfx', 'build');
+    this.toast(t('msg.boat_fixed'), 'world', '⛵');
+    this.state.stats.worldChanges++;
+    this.events.emit('worldChange', { id: 'boat_repaired' });
+    this.progress('repair', undefined, 1);
+    this.runRules();
+    this.changed();
+    return { ok: true };
+  }
+
+  healReef(spotId: string): ActionResult {
+    const w = this.state.world;
+    if (w.reefHealed.includes(spotId)) return { ok: false };
+    if (Object.keys(this.missingFor(REEF_COST)).length) return { ok: false, message: t('msg.reef_needs') };
+    for (const [item, n] of Object.entries(REEF_COST) as [ItemId, number][]) this.state.inventory[item] -= n;
+    w.reefHealed.push(spotId);
+    this.events.emit('sfx', 'magic');
+    this.addXp(8);
+    this.addHarmony(4);
+    this.progress('reef', undefined, 1);
+    this.runRules();
+    this.changed();
+    return { ok: true, message: t('msg.reef_healed', { n: w.reefHealed.length }) };
+  }
+
   // ---------------------------------------------------------------- world rules
 
   /** Apply all world rules that are now due (PRD 13.2). Effects may make further rules due. */
@@ -1224,6 +1623,9 @@ export class Game {
         break;
       case 'toast':
         this.toast(t(a), 'world', '🌟');
+        break;
+      case 'quest':
+        this.unlockQuest(a as QuestId);
         break;
       default:
         throw new Error(`Unknown rule effect: ${effect}`);

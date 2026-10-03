@@ -11,20 +11,19 @@ import { DEFEAT_LOSS_SHARE, bossHealth, canHealHollow, damageTaken, maxHealth } 
 import { FISH_PRESSURE_LIMIT } from '../src/core/config';
 import { BUILDINGS, CREATURES, DISCOVERY_CATALOG, QUESTS } from '../src/core/content';
 import { Game } from '../src/core/game';
-import { migrateSave, newGameState } from '../src/core/state';
+import { SAVE_VERSION, migrateSave, newGameState } from '../src/core/state';
 
 const newGame = (rng = () => 0.9) => new Game(newGameState(), undefined, rng);
 
 describe('MVP scope (PRD 8.2)', () => {
-  it('has 7 zones, 10 creatures with 2 evolutions, 5 buildings and 8–12 quests', () => {
-    expect(Object.keys(AREAS)).toHaveLength(4); // + village, forest, lake on the island = 7
-    expect(Object.keys(CREATURES)).toHaveLength(10);
+  it('has the MVP content plus Coral Isle: 8 zones, 14 creatures with 2 evolutions, 5 buildings and 14 quests', () => {
+    expect(Object.keys(AREAS)).toHaveLength(5); // + village, forest, lake on the island = 8
+    expect(Object.keys(CREATURES)).toHaveLength(14);
     expect(Object.values(CREATURES).filter((c) => c.evolution)).toHaveLength(2);
+    expect(Object.values(CREATURES).filter((c) => c.season)).toHaveLength(2);
     expect(Object.keys(BUILDINGS)).toHaveLength(5);
-    const quests = Object.keys(QUESTS).length;
-    expect(quests).toBeGreaterThanOrEqual(8);
-    expect(quests).toBeLessThanOrEqual(12);
-    expect(DISCOVERY_CATALOG.creatures).toHaveLength(10);
+    expect(Object.keys(QUESTS)).toHaveLength(14);
+    expect(DISCOVERY_CATALOG.creatures).toHaveLength(14);
   });
 });
 
@@ -258,7 +257,7 @@ describe('fishing, crafting and evolution', () => {
   });
 });
 
-describe('save migration v2 → v3', () => {
+describe('save migration v2 → current', () => {
   it('fills new fields and opens quests unlocked by already-finished quests', () => {
     const v2 = JSON.parse(JSON.stringify(newGameState())) as Record<string, any>;
     v2.saveVersion = 2;
@@ -268,7 +267,7 @@ describe('save migration v2 → v3', () => {
     v2.quests.q_egg.status = 'done';
     v2.choices = [{ id: 'egg_choice', value: 'temple', day: 1 }];
     const s = migrateSave(v2);
-    expect(s.saveVersion).toBe(3);
+    expect(s.saveVersion).toBe(SAVE_VERSION);
     expect(s.world.temple.mirrors).toHaveLength(3);
     expect(s.player.health).toBe(5);
     expect(s.quests.q_highlands.status).toBe('available');

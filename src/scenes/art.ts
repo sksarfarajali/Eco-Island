@@ -58,9 +58,10 @@ export function outlineTexture(scene: Phaser.Scene, key: string, color = 'rgba(4
 
 /** Every character, creature and enemy texture that gets an outline. */
 export const OUTLINED = [
-  'npc_rocco', 'npc_luna', 'npc_zed', 'npc_tilly', 'pip_happy', 'pip_sad', 'pip_excited',
+  'npc_rocco', 'npc_luna', 'npc_zed', 'npc_tilly', 'npc_marina', 'pip_happy', 'pip_sad', 'pip_excited',
   'glowfox', 'ripplet', 'mossprite', 'sunchick', 'gleamwing', 'pebblepup', 'skyhare', 'thistlegoat',
   'archowl', 'wispling', 'lumifox', 'moonshell', 'gloomling', 'egg',
+  'shellcrab', 'seapup', 'petalbee', 'snowkit',
 ];
 
 export const ellipse = (ctx: Ctx, x: number, y: number, rx: number, ry: number, fill: string) => {
@@ -248,6 +249,7 @@ const NPC_LOOKS: Record<NpcId, PersonLook> = {
   luna: { skin: SKIN[0], hair: '#e9e4f5', outfit: '#7b5fd6', hat: 'bun', goggles: true },
   zed: { skin: SKIN[3], hair: '#1d1410', outfit: '#3f8f4f', hat: 'wide' },
   tilly: { skin: SKIN[1], hair: '#8a3b2a', outfit: '#ef7fa6', hat: 'braids' },
+  marina: { skin: SKIN[2], hair: '#2a9d8f', outfit: '#ff8c69', hat: 'bun' },
 };
 
 /** Nova, wearing any cosmetics earned from Discovery Book milestones. */
@@ -275,10 +277,41 @@ function drawNova(scene: Phaser.Scene, key: string, a: Appearance, cosmetics: st
     }
     drawPerson(ctx, novaLook(a), step);
     if (cosmetics.includes('friend_scarf')) rrect(ctx, 7, 17, 14, 4, 2, '#ff7aa8');
-    if (cosmetics.includes('explorer_hat')) {
+    // only one hat at a time: the grandest one earned
+    if (cosmetics.includes('golden_crown')) {
+      ctx.fillStyle = '#ffd84a';
+      ctx.beginPath();
+      ctx.moveTo(7, 4);
+      ctx.lineTo(8, -3);
+      ctx.lineTo(11, 1);
+      ctx.lineTo(14, -4);
+      ctx.lineTo(17, 1);
+      ctx.lineTo(20, -3);
+      ctx.lineTo(21, 4);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = '#c89a1c';
+      ctx.lineWidth = 0.8;
+      ctx.stroke();
+      circle(ctx, 14, 1.5, 1.4, '#ff6ab0');
+    } else if (cosmetics.includes('sun_hat')) {
+      ellipse(ctx, 14, 4, 13, 3.2, '#f6d77a');
+      rrect(ctx, 8.5, -2.5, 11, 7, 3.5, '#ffe27a');
+      rrect(ctx, 8.5, 1.8, 11, 1.6, 0.5, '#ff7aa8');
+    } else if (cosmetics.includes('explorer_hat')) {
       ellipse(ctx, 14, 3.5, 12, 3, '#c8a06a');
       rrect(ctx, 8, -3, 12, 7, 3, '#d9b47c');
       rrect(ctx, 8, 1.5, 12, 1.6, 0.5, '#3aa6d8');
+    } else if (cosmetics.includes('party_hat')) {
+      ctx.fillStyle = '#7b5fd6';
+      ctx.beginPath();
+      ctx.moveTo(9.5, 3);
+      ctx.lineTo(14, -6);
+      ctx.lineTo(18.5, 3);
+      ctx.closePath();
+      ctx.fill();
+      [[12, 0], [15.5, -1.5], [14, 2]].forEach(([x, y]) => circle(ctx, x, y, 0.9, '#ffd84a'));
+      circle(ctx, 14, -6, 1.6, '#ff7aa8');
     }
   });
   outlineTexture(scene, key);

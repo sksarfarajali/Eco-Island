@@ -2,13 +2,13 @@ import { AREAS, TEMPLE_BLOCK_START, TEMPLE_MIRRORS } from './areas';
 import { maxHealth } from './combat';
 import { START_MINUTES, STARTING_COINS } from './config';
 import { CREATURE_ORDER, QUEST_ORDER, QUESTS } from './content';
-import { NODES, PLOTS, POI } from './layout';
+import { DECOR_SLOTS, NODES, PLOTS, POI } from './layout';
 import type { Appearance, GameState, NodeState, QuestId, QuestStatus, TempleState } from './types';
 
-export const SAVE_VERSION = 3;
+export const SAVE_VERSION = 4;
 
 /** Resource nodes in the other areas use ids like `caves:c3`. */
-const AREA_NODE_CHARS = 'crf';
+const AREA_NODE_CHARS = 'crfkqj';
 
 export function initialNodes(): Record<string, NodeState> {
   const island = NODES.map((n) => [n.id, { stage: n.kind === 'grove' ? 'soil' : 'full', timer: 0 } as NodeState]);
@@ -48,13 +48,14 @@ export function newGameState(appearance: Appearance = { skin: 0, hair: 0, outfit
       attackBonus: 0,
       position: { area: 'island', zone: 'village', x: POI.start.x, y: POI.start.y },
       cosmetics: [],
+      buffs: {},
     },
     island: {
       level: 1,
       harmony: 0,
       treesPlanted: 0,
       lakeRestored: false,
-      corruption: { village: 0, forest: 0, lake: 0, caves: 0, temple: 0, highlands: 0, grove: 0 },
+      corruption: { village: 0, forest: 0, lake: 0, caves: 0, temple: 0, highlands: 0, grove: 0, isle: 0 },
       harvestPressure: 0,
       fishPressure: 0,
       cleanseProgress: 0,
@@ -81,17 +82,28 @@ export function newGameState(appearance: Appearance = { skin: 0, hair: 0, outfit
       ending: null,
       fishCaught: 0,
       trip: {},
+      weather: { kind: 'clear', until: START_MINUTES + 360 },
+      festivals: [],
+      decor: Object.fromEntries(DECOR_SLOTS.map((d) => [d.id, null])),
+      decorOwned: {},
+      decorSeen: [],
+      boatRepaired: false,
+      reefHealed: [],
+      minigames: { seekWins: 0, raceWins: 0, rewardDay: {} },
     },
+    daily: { date: '', tasks: [], bonusClaimed: false, streak: 0, lastLogin: '', completed: 0 },
+    achievements: [],
     inventory: {
       wood: 0, stone: 0, crystal: 0, glow_berry: 0, veggie: 0, seed: 1, essence: 0, purifier: 0,
-      minnow: 0, moonfish: 0, echo_koi: 0, tonic: 0,
+      minnow: 0, moonfish: 0, echo_koi: 0, tonic: 0, coral: 0, shell: 0, coconut: 0,
+      berry_pie: 0, fish_stew: 0, garden_salad: 0, coconut_curry: 0,
     },
     buildings: { house: 0, garden: 0, workshop: 0, sanctuary: 0, arch: 0 },
     creatures: Object.fromEntries(
       CREATURE_ORDER.map((id) => [
         id,
         // creatures that live in their home area from the start; others appear through world changes
-        { state: 'unknown', bond: 0, present: ['glowfox', 'gleamwing', 'pebblepup', 'thistlegoat', 'archowl'].includes(id), evolved: false },
+        { state: 'unknown', bond: 0, present: ['glowfox', 'gleamwing', 'pebblepup', 'thistlegoat', 'archowl', 'shellcrab', 'petalbee', 'snowkit'].includes(id), evolved: false },
       ]),
     ) as GameState['creatures'],
     pip: {
@@ -105,11 +117,12 @@ export function newGameState(appearance: Appearance = { skin: 0, hair: 0, outfit
       luna: { trust: 0, present: false, met: false },
       zed: { trust: 0, present: false, met: false },
       tilly: { trust: 0, present: false, met: false },
+      marina: { trust: 0, present: true, met: false },
     },
     quests,
     choices: [],
     discoveries: { creatures: [], plants: [], relics: [], places: [] },
-    stats: { sessions: 0, playSeconds: 0, questsDone: 0, worldChanges: 0, errors: 0, defeats: 0 },
+    stats: { sessions: 0, playSeconds: 0, questsDone: 0, worldChanges: 0, errors: 0, defeats: 0, mealsCooked: 0, photos: 0, weatherSeen: [] },
   };
 }
 

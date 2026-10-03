@@ -1,8 +1,8 @@
 import type { SfxName } from '../core/game';
-import type { Settings } from '../core/types';
+import type { Settings, WeatherKind } from '../core/types';
 
 /** Where the player is, so music and ambience can match it. */
-export type Mood = 'menu' | 'village' | 'forest' | 'lake' | 'caves' | 'temple' | 'highlands' | 'grove' | 'night' | 'boss';
+export type Mood = 'menu' | 'village' | 'forest' | 'lake' | 'caves' | 'temple' | 'highlands' | 'grove' | 'isle' | 'festival' | 'night' | 'boss';
 
 interface MoodDef {
   /** Scale for the melody (Hz). */
@@ -33,6 +33,8 @@ const MOODS: Record<Mood, MoodDef> = {
   temple: { scale: minorPent(174.6), roots: [87.3, 77.8], tempo: 640, density: 0.4, wave: 'triangle', bed: { type: 'bandpass', freq: 300, q: 3, level: 0.03, wobble: 0.2 }, detail: 'chimes' },
   highlands: { scale: pent(246.9), roots: [123.5, 110], tempo: 400, density: 0.55, wave: 'triangle', bed: { type: 'highpass', freq: 600, q: 0.3, level: 0.05, wobble: 1.2 }, detail: 'wind' },
   grove: { scale: minorPent(155.6), roots: [77.8, 73.4], tempo: 680, density: 0.35, wave: 'sine', bed: { type: 'bandpass', freq: 240, q: 4, level: 0.05, wobble: 0.5 }, detail: 'whispers' },
+  isle: { scale: pent(293.7, [1, 9 / 8, 5 / 4, 3 / 2, 5 / 3, 2]), roots: [146.8, 130.8], tempo: 380, density: 0.62, wave: 'triangle', bed: { type: 'lowpass', freq: 520, q: 0.7, level: 0.07, wobble: 1.1 }, detail: 'waves' },
+  festival: { scale: pent(C * 2, [1, 9 / 8, 5 / 4, 3 / 2, 5 / 3, 2]), roots: [130.8, 174.6], tempo: 300, density: 0.8, wave: 'square', bed: { type: 'lowpass', freq: 600, q: 0.4, level: 0.02, wobble: 0.3 }, detail: 'chimes' },
   night: { scale: pent(196, [1, 5 / 4, 3 / 2, 2, 5 / 2]), roots: [98, 82.4], tempo: 760, density: 0.35, wave: 'sine', bed: { type: 'lowpass', freq: 350, q: 0.5, level: 0.03, wobble: 0.2 }, detail: 'crickets' },
   boss: { scale: minorPent(110), roots: [55, 51.9], tempo: 230, density: 0.75, wave: 'sawtooth', bed: { type: 'lowpass', freq: 200, q: 6, level: 0.05, wobble: 2 }, detail: 'none' },
 };
@@ -52,6 +54,8 @@ export class Audio {
   private step = 0;
   private mood: Mood = 'menu';
   private bed: { src: AudioBufferSourceNode; filter: BiquadFilterNode; gain: GainNode; lfo: OscillatorNode } | null = null;
+  private rain: { src: AudioBufferSourceNode; gain: GainNode } | null = null;
+  private weather: WeatherKind = 'clear';
   private lastStep = 0;
 
   constructor(private settings: Settings) {}
@@ -97,6 +101,37 @@ export class Audio {
     if (this.musicTimer !== null) {
       this.stopMusic();
       this.startMusic();
+    }
+  }
+
+  /** Rain gets its own soft, steady layer on top of the zone ambience. */
+  setWeather(kind: WeatherKind): void {
+    if (kind === this.weather) return;
+    this.weather = kind;
+    if (!this.ctx || !this.ambGain || !this.noise) return;
+    if (kind === 'rain' && !this.rain) {
+      const src = this.ctx.createBufferSource();
+      src.buffer = this.noise;
+      src.loop = true;
+      const lp = this.ctx.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.value = 2400;
+      const hp = this.ctx.createBiquadFilter();
+      hp.type = 'highpass';
+      hp.frequency.value = 500;
+      const gain = this.ctx.createGain();
+      gain.gain.value = 0;
+      gain.gain.linearRampToValueAtTime(0.06, this.ctx.currentTime + 2);
+      src.connect(lp).connect(hp).connect(gain).connect(this.ambGain);
+      src.start();
+      this.rain = { src, gain };
+    } else if (kind !== 'rain' && this.rain) {
+      const t = this.ctx.currentTime;
+      this.rain.gain.gain.cancelScheduledValues(t);
+      this.rain.gain.gain.setValueAtTime(this.rain.gain.gain.value, t);
+      this.rain.gain.gain.linearRampToValueAtTime(0, t + 1.5);
+      this.rain.src.stop(t + 1.6);
+      this.rain = null;
     }
   }
 
@@ -187,6 +222,32 @@ export class Audio {
         seq([196, 247, 294, 392], 0.22, 'triangle', 0.35, 0.9);
         break;
       case 'click': this.tone(1200, t, 0.035, 'triangle', 0.18, o, 900); break;
+      case 'cook':
+        this.hiss(t, 0.7, 'highpass', 4000, 0.18, o, 6000);
+        [0.1, 0.25, 0.4].forEach((d) => this.tone(300 + Math.random() * 200, t + d, 0.08, 'sine', 0.2, o, 600));
+        seq([659, 784, 1047], 0.12, 'triangle', 0.3, 1.2);
+        break;
+      case 'camera':
+        this.hiss(t, 0.05, 'highpass', 3000, 0.6, o);
+        this.tone(2000, t, 0.03, 'square', 0.15, o);
+        this.hiss(t + 0.08, 0.06, 'bandpass', 1500, 0.4, o, 800, 2);
+        break;
+      case 'festival':
+        seq([523, 659, 784, 659, 784, 1047], 0.13, 'square', 0.18);
+        this.tone(1568, t + 0.7, 0.6, 'sine', 0.2, o);
+        this.hiss(t + 0.7, 0.5, 'highpass', 6000, 0.1, o);
+        break;
+      case 'badge':
+        [1319, 1568, 1976, 2637].forEach((f, i) => this.tone(f, t + i * 0.07, 0.4, 'sine', 0.22, o));
+        this.tone(659, t, 0.5, 'triangle', 0.3, o);
+        break;
+      case 'whistle': this.tone(1800, t, 0.18, 'sine', 0.3, o, 2300); this.tone(1800, t + 0.25, 0.35, 'sine', 0.3, o, 2400); break;
+      case 'giggle': seq([1568, 1760, 1568, 1976], 0.06, 'triangle', 0.25, 1.1); break;
+      case 'boat':
+        this.tone(147, t, 0.6, 'sawtooth', 0.12, o);
+        this.tone(220, t, 0.6, 'triangle', 0.25, o);
+        this.hiss(t + 0.3, 0.8, 'lowpass', 1200, 0.3, o, 300);
+        break;
       case 'step_grass': this.footstep(1400, 0.18); break;
       case 'step_sand': this.footstep(2600, 0.14); break;
       case 'step_stone': this.footstep(900, 0.22, true); break;

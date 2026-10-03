@@ -1,16 +1,24 @@
-import { ISLAND_HARMONY_LEVELS, PLAYER_XP_LEVELS } from '../core/config';
+import { ACHIEVEMENTS } from '../core/achievements';
+import { ISLAND_HARMONY_LEVELS, LOGIN_REWARDS, PLAYER_XP_LEVELS } from '../core/config';
 import {
+  BUFF_ICONS,
   BUILDING_ORDER,
   RECIPES,
   BUILDINGS,
   CREATURES,
+  DECOR,
+  DECOR_ORDER,
   DISCOVERY_CATALOG,
   DISCOVERY_MILESTONES,
   ITEMS,
   ITEM_ORDER,
+  MEALS,
+  MEAL_ORDER,
   QUESTS,
   QUEST_ORDER,
+  SEASON_ICONS,
 } from '../core/content';
+import { DAILY_BONUS, DAILY_POOL } from '../core/daily';
 import { levelProgress, type Dialog, type Game, type ToastEvent } from '../core/game';
 import type { AwaySummary } from '../core/growth';
 import { t } from '../core/i18n';
@@ -20,7 +28,9 @@ import type {
   AreaId,
   Appearance,
   Ending,
+  BuffId,
   BuildingId,
+  DecorId,
   DiscoveryCategory,
   ItemId,
   NpcId,
@@ -63,9 +73,28 @@ export interface UIActions {
   quitToMenu(): void;
   install(): void;
   canInstall(): boolean;
+  cook(meal: ItemId): void;
+  buyDecor(id: DecorId): void;
+  startDecor(mode: DecorId | 'arrange'): void;
+  stopDecor(): void;
+  photo(on: boolean): void;
+  photoZoom(f: number): void;
+  /** Take a framed photo with the given CSS filter; resolves to a PNG data URL. */
+  snapshot(filter: string): Promise<string | null>;
+  claimLogin(): void;
 }
 
-type PanelId = 'journal' | 'book' | 'bag' | 'build' | 'shop' | 'map' | 'companion' | 'settings' | 'workshop';
+type PanelId = 'journal' | 'book' | 'bag' | 'build' | 'shop' | 'map' | 'companion' | 'settings' | 'workshop' | 'kitchen';
+
+const WEATHER_ICONS: Record<string, string> = { clear: '', rain: ' 🌧️', fog: ' 🌫️', snow: ' 🌨️' };
+
+const PHOTO_FILTERS: [string, string][] = [
+  ['none', 'none'],
+  ['warm', 'sepia(0.25) saturate(1.3) brightness(1.05)'],
+  ['dreamy', 'saturate(1.2) brightness(1.1) contrast(0.9) hue-rotate(-10deg)'],
+  ['vintage', 'sepia(0.6) contrast(1.05)'],
+  ['mono', 'grayscale(1) contrast(1.1)'],
+];
 
 const coarse = () => typeof matchMedia !== 'undefined' && matchMedia('(pointer: coarse)').matches;
 
@@ -92,6 +121,10 @@ export class UI {
   private bossBarEl!: HTMLElement;
   private inCombat = false;
   private fishingOpen = false;
+  private journalTab: 'quests' | 'daily' | 'badges' = 'quests';
+  private buildTab: 'build' | 'decor' = 'build';
+  private minigameEl!: HTMLElement;
+  private photoEl: HTMLElement | null = null;
 
   constructor(
     private actions: UIActions,
@@ -347,6 +380,7 @@ export class UI {
       cbtn('eat', t('combat.eat'), '🫐', { onclick: () => this.actions.eat() }),
     );
     this.bossBarEl = h('div', { class: 'boss-bar', hidden: true });
+    this.minigameEl = h('div', { class: 'minigame-bar', hidden: true, 'aria-live': 'polite' });
     this.hud = h('div', { class: 'hud', hidden: true },
       this.hudStatus,
       h('nav', { class: 'hud-buttons', 'aria-label': t('hud.menu') },
@@ -356,9 +390,11 @@ export class UI {
         btn('build', '🔨', 'hud.build'),
         btn('map', '🗺️', 'hud.map'),
         btn('companion', '💫', 'hud.companion'),
+        h('button', { class: 'hud-btn', 'aria-label': t('hud.photo'), title: t('hud.photo'), onclick: () => this.showPhotoMode() }, h('span', { 'aria-hidden': 'true' }, '📷'), h('em', {}, t('hud.photo'))),
         btn('settings', '⚙️', 'hud.settings'),
       ),
       this.buildBar,
+      this.minigameEl,
       this.bossBarEl,
       this.combatBar,
       this.promptEl,
@@ -421,11 +457,15 @@ export class UI {
       this.hudStatus.append(h('div', { class: 'hud-line' }, this.hudZone, this.hudClock), this.hudBody);
     }
     const zone = t(`zone.${this.zone}`);
-    const clock = `${t('hud.day', { day: g.day })} · ${g.timeLabel()}`;
+    const clock = `${SEASON_ICONS[g.season()]} ${t('hud.day', { day: g.day })} · ${g.timeLabel()}${WEATHER_ICONS[g.weather()]}${g.festivalToday() ? ' 🎉' : ''}`;
     if (this.hudZone.textContent !== zone) this.hudZone.textContent = zone;
     if (this.hudClock!.textContent !== clock) this.hudClock!.textContent = clock;
+    const buffs = (Object.entries(s.player.buffs) as [BuffId, number][]).filter(([, sec]) => sec > 0);
     const body = h('div', {},
-      h('div', { class: 'hearts', role: 'img', 'aria-label': t('hud.health', { hp: s.player.health, max: g.maxHealth() }), title: t('hud.health', { hp: s.player.health, max: g.maxHealth() }) },
+      buffs.length
+        ? h('div', { class: 'buffs', title: t('hud.buffs') }, buffs.map(([id, sec]) => h('span', { class: 'buff' }, `${BUFF_ICONS[id]} ${Math.ceil(sec / 60)}m`)))
+        : null,
+      h('div', { class: `hearts ${g.maxHealth() > 10 ? 'many' : ''}`, role: 'img', 'aria-label': t('hud.health', { hp: s.player.health, max: g.maxHealth() }), title: t('hud.health', { hp: s.player.health, max: g.maxHealth() }) },
         Array.from({ length: g.maxHealth() }, (_, i) => h('span', { class: i < s.player.health ? 'heart' : 'heart empty' }, i < s.player.health ? '❤️' : '🤍'))),
       h('div', { class: 'hud-line' },
         h('span', { class: 'coins', title: t('hud.coins') }, `🪙 ${s.player.coins}`),
@@ -485,6 +525,22 @@ export class UI {
       labels[3].textContent = `${t('combat.eat')} (1)`;
     }
     if (!on && coarse() && this.actionBtn.classList.contains('combat')) this.actionBtn.hidden = true;
+  }
+
+  /** Mini-game status (timer) at the top of the screen. */
+  setMinigame(text: string | null): void {
+    this.minigameEl.hidden = !text;
+    if (text && this.minigameEl.textContent !== text) this.minigameEl.textContent = text;
+  }
+
+  showDecorBar(on: boolean): void {
+    clear(this.buildBar);
+    this.buildBar.hidden = !on;
+    if (!on) return;
+    this.buildBar.append(
+      h('span', {}, t('decor.mode')),
+      h('button', { class: 'btn small ghost', onclick: () => this.actions.stopDecor() }, t('common.done')),
+    );
   }
 
   setBossBar(hp: number, max: number): void {
@@ -711,10 +767,58 @@ export class UI {
       case 'companion': return this.companion();
       case 'settings': return this.settingsPanel();
       case 'workshop': return this.workshop();
+      case 'kitchen': return this.kitchen();
     }
   }
 
   private journal(): HTMLElement {
+    const s = this.game!.state;
+    const pending = s.daily.tasks.filter((d) => !d.done).length;
+    const tab = (id: typeof this.journalTab, label: string) =>
+      h('button', { class: `tab ${this.journalTab === id ? 'on' : ''}`, onclick: () => { this.journalTab = id; this.renderPanel(); } }, label);
+    const tabs = h('div', { class: 'tabs' },
+      tab('quests', t('journal.tab_quests')),
+      tab('daily', `${t('journal.tab_daily')}${pending ? ` (${pending})` : ''}`),
+      tab('badges', `${t('journal.tab_badges')} (${s.achievements.length}/${ACHIEVEMENTS.length})`));
+    const body = this.journalTab === 'daily' ? this.dailyTab() : this.journalTab === 'badges' ? this.badgesTab() : this.questsTab();
+    return h('div', {}, tabs, body);
+  }
+
+  private dailyTab(): HTMLElement {
+    const g = this.game!;
+    g.refreshDaily();
+    const d = g.state.daily;
+    return h('div', {},
+      h('p', { class: 'muted' }, t('daily.intro')),
+      d.streak ? h('p', { class: 'coins-line' }, `🔥 ${t('daily.streak', { n: d.streak })}`) : null,
+      d.tasks.map((task) => {
+        const def = DAILY_POOL[task.kind];
+        return h('div', { class: `quest ${task.done ? 'done' : 'active'}` },
+          h('div', { class: 'quest-title' }, task.done ? '✅ ' : '📅 ', t(`daily.${task.kind}`, { n: task.target })),
+          h('div', { class: 'quest-progress' }, h('span', {}, `${task.progress}/${task.target}`), bar(task.progress / task.target)),
+          h('p', { class: 'muted' }, t('daily.reward', { coins: def.coins, xp: def.xp })),
+        );
+      }),
+      h('div', { class: `quest ${d.bonusClaimed ? 'done' : ''}` },
+        h('div', { class: 'quest-title' }, d.bonusClaimed ? '✅ ' : '🎁 ', t('daily.bonus')),
+        h('p', { class: 'muted' }, t('daily.bonus_desc', { coins: DAILY_BONUS.coins, harmony: DAILY_BONUS.harmony }))),
+      h('p', { class: 'muted' }, t('daily.total', { n: d.completed })),
+    );
+  }
+
+  private badgesTab(): HTMLElement {
+    const s = this.game!.state;
+    return h('div', { class: 'cards' }, ACHIEVEMENTS.map((a) => {
+      const got = s.achievements.includes(a.id);
+      return h('div', { class: `card badge ${got ? 'got' : 'unknown'}` },
+        h('div', { class: 'card-icon', 'aria-hidden': 'true' }, got ? a.icon : '🔒'),
+        h('strong', {}, t(`badge.${a.id}`)),
+        h('p', {}, t(`badge.${a.id}.desc`)),
+      );
+    }));
+  }
+
+  private questsTab(): HTMLElement {
     const g = this.game!;
     const s = g.state;
     const section = (title: string, ids: typeof QUEST_ORDER) =>
@@ -779,8 +883,9 @@ export class UI {
     const g = this.game!;
     const s = g.state;
     const groups: [string, ItemId[]][] = [
-      ['bag.resources', ['wood', 'stone', 'crystal', 'essence']],
-      ['bag.food', ['glow_berry', 'veggie', 'minnow', 'moonfish', 'echo_koi', 'tonic']],
+      ['bag.resources', ['wood', 'stone', 'crystal', 'essence', 'coral', 'shell']],
+      ['bag.food', ['glow_berry', 'veggie', 'coconut', 'minnow', 'moonfish', 'echo_koi', 'tonic']],
+      ['bag.meals', MEAL_ORDER],
       ['bag.special', ['seed', 'purifier']],
     ];
     const itemRow = (item: ItemId) =>
@@ -790,7 +895,7 @@ export class UI {
         item === 'purifier' && s.inventory.purifier > 0
           ? h('button', { class: 'btn small', onclick: () => this.actions.usePurifier() }, t('bag.use'))
           : ITEMS[item].heal && s.inventory[item] > 0
-            ? h('button', { class: 'btn small', disabled: s.player.health >= g.maxHealth(), onclick: () => this.info(g.eat(item).message ?? '') }, t('bag.eat', { n: ITEMS[item].heal! > 10 ? '♥♥' : ITEMS[item].heal! }))
+            ? h('button', { class: 'btn small', disabled: s.player.health >= g.maxHealth() && !ITEMS[item].buff, onclick: () => this.info(g.eat(item).message ?? '') }, t('bag.eat', { n: ITEMS[item].heal! > 10 ? '♥♥' : ITEMS[item].heal! }))
             : null,
       );
     return h('div', {},
@@ -799,7 +904,7 @@ export class UI {
       groups.map(([key, items]) => h('section', {}, h('h3', {}, t(key)), items.map(itemRow))),
       h('section', {}, h('h3', {}, t('bag.cosmetics')),
         s.player.cosmetics.length
-          ? s.player.cosmetics.map((c) => h('div', { class: 'item' }, h('span', { class: 'item-icon' }, '🌸'), h('strong', {}, t(`cosmetic.${c}`))))
+          ? s.player.cosmetics.map((c) => h('div', { class: 'item' }, h('span', { class: 'item-icon' }, t(`cosmetic.${c}.icon`)), h('strong', {}, t(`cosmetic.${c}`))))
           : h('p', { class: 'muted' }, t('bag.no_cosmetics'))),
       h('p', { class: 'muted' }, t('bag.sell_hint')),
     );
@@ -814,6 +919,40 @@ export class UI {
   }
 
   private buildPanel(): HTMLElement {
+    const tab = (id: typeof this.buildTab, label: string) =>
+      h('button', { class: `tab ${this.buildTab === id ? 'on' : ''}`, onclick: () => { this.buildTab = id; this.renderPanel(); } }, label);
+    return h('div', {},
+      h('div', { class: 'tabs' }, tab('build', t('build.tab_build')), tab('decor', t('build.tab_decor'))),
+      this.buildTab === 'decor' ? this.decorTab() : this.buildingsTab());
+  }
+
+  private decorTab(): HTMLElement {
+    const g = this.game!;
+    const s = g.state;
+    const placed = Object.values(s.world.decor).filter(Boolean).length;
+    const cards = DECOR_ORDER.map((id) => {
+      const def = DECOR[id];
+      const owned = s.world.decorOwned[id] ?? 0;
+      return h('div', { class: 'card build-card' },
+        h('div', { class: 'card-icon', 'aria-hidden': 'true' }, def.icon),
+        h('strong', {}, t(`decor.${id}`)),
+        h('p', {}, t(`decor.${id}.desc`)),
+        h('p', { class: 'muted' }, def.festival ? t('decor.festival_only', { name: t(`festival.${def.festival}`) }) : t('decor.price', { n: def.price! })),
+        h('p', { class: 'muted' }, t('decor.owned', { n: owned }) + (s.world.decorSeen.includes(id) ? '' : ` · ${t('build.reward', { harmony: def.harmony })}`)),
+        h('div', { class: 'row-buttons' },
+          def.price !== undefined ? h('button', { class: 'btn small', disabled: s.player.coins < def.price, onclick: () => this.actions.buyDecor(id) }, t('decor.buy', { n: def.price })) : null,
+          h('button', { class: 'btn small primary', disabled: owned < 1, onclick: () => { this.closePanel(); this.actions.startDecor(id); } }, t('decor.place'))),
+      );
+    });
+    return h('div', {},
+      h('p', { class: 'coins-line' }, `🪙 ${t('bag.coins', { n: s.player.coins })}`),
+      h('p', { class: 'muted' }, t('decor.intro', { n: placed })),
+      h('div', { class: 'menu-buttons row-buttons' },
+        h('button', { class: 'btn', disabled: placed < 1, onclick: () => { this.closePanel(); this.actions.startDecor('arrange'); } }, t('decor.arrange'))),
+      h('div', { class: 'cards' }, cards));
+  }
+
+  private buildingsTab(): HTMLElement {
     const g = this.game!;
     const s = g.state;
     const free = PLOTS.filter((p) => g.plotStatus(p.id) === 'free').length;
@@ -910,7 +1049,7 @@ export class UI {
     ctx.fillRect(0, 0, W, H);
     const PLACE: Record<string, string> = {
       village: 'whisper_village', forest: 'emerald_forest', lake: 'moonlit_lake',
-      caves: 'crystal_caves', temple: 'ancient_temple', highlands: 'highlands', grove: 'shadow_grove',
+      caves: 'crystal_caves', temple: 'ancient_temple', highlands: 'highlands', grove: 'shadow_grove', isle: 'coral_isle',
     };
     const known = (z: string) => s.discoveries.places.includes(PLACE[z]);
     // You can travel to any place you have found, and to any area whose entrance is open.
@@ -919,7 +1058,8 @@ export class UI {
       z === 'caves' ||
       z === 'highlands' ||
       (z === 'temple' && s.world.templeOpen) ||
-      (z === 'grove' && s.island.visuals.includes('grove_gate_open'));
+      (z === 'grove' && s.island.visuals.includes('grove_gate_open')) ||
+      (z === 'isle' && s.world.boatRepaired);
     for (let ty = 0; ty < 44; ty++) {
       for (let tx = 0; tx < 64; tx++) {
         if (!isLand(tx, ty)) continue;
@@ -973,6 +1113,8 @@ export class UI {
       h('div', { class: 'menu-buttons' }, (['village', 'forest', 'lake'] as ZoneId[]).map(travelBtn)),
       h('h3', {}, t('map.beyond')),
       h('div', { class: 'menu-buttons' }, (['caves', 'temple', 'highlands', 'grove'] as ZoneId[]).map(travelBtn)),
+      h('h3', {}, t('map.sea')),
+      h('div', { class: 'menu-buttons' }, travelBtn('isle')),
     );
   }
 
@@ -990,7 +1132,7 @@ export class UI {
               h('span', {}, s.pip.enabled[a] ? t('common.on') : t('common.off')))
           : null);
     });
-    const met = (['rocco', 'luna', 'zed', 'tilly'] as NpcId[]).filter((n) => s.npcs[n].met);
+    const met = (['rocco', 'luna', 'zed', 'tilly', 'marina'] as NpcId[]).filter((n) => s.npcs[n].met);
     return h('div', {},
       h('p', {}, t('pip.panel_intro', { mood: t(`mood.${s.pip.mood}`) })),
       h('section', {}, h('h3', {}, t('companion.abilities')), abilities),
@@ -1021,6 +1163,109 @@ export class UI {
       );
     });
     return h('div', {}, h('p', { class: 'muted' }, t('workshop.intro')), h('div', { class: 'cards' }, rows));
+  }
+
+  /** The village cooking pot: meals heal and give a timed boost. */
+  private kitchen(): HTMLElement {
+    const g = this.game!;
+    const s = g.state;
+    const cards = MEAL_ORDER.map((meal) => {
+      const cost = MEALS[meal]!;
+      const missing = Object.keys(g.missingFor(cost)).length > 0;
+      const def = ITEMS[meal];
+      return h('div', { class: 'card' },
+        h('div', { class: 'card-icon', 'aria-hidden': 'true' }, def.icon),
+        h('strong', {}, g.itemName(meal)),
+        h('p', {}, t(`item.${meal}.desc`)),
+        h('p', { class: 'muted' }, `${BUFF_ICONS[def.buff!.id]} ${t(`buff.${def.buff!.id}.desc`)} · ${t('kitchen.minutes', { n: Math.round(def.buff!.seconds / 60) })}`),
+        this.costChips(cost),
+        h('div', { class: 'row-buttons' },
+          h('button', { class: 'btn primary', disabled: missing, onclick: () => this.actions.cook(meal) }, t('kitchen.cook')),
+          s.inventory[meal] > 0 ? h('button', { class: 'btn', onclick: () => this.info(g.eat(meal).message ?? '') }, t('kitchen.eat', { n: s.inventory[meal] })) : null),
+      );
+    });
+    return h('div', {}, h('p', { class: 'muted' }, t('kitchen.intro')), h('div', { class: 'cards' }, cards));
+  }
+
+  /** Daily login reward: a row of seven days, today's reward highlighted. */
+  showLogin(r: { streak: number; coins: number; first: boolean }, onDone: () => void): void {
+    const today = ((r.streak - 1) % LOGIN_REWARDS.length) + 1;
+    const days = LOGIN_REWARDS.map((coins, i) =>
+      h('div', { class: `login-day ${i + 1 < today ? 'past' : i + 1 === today ? 'today' : ''}` },
+        h('small', {}, t('login.day', { n: i + 1 })),
+        h('strong', {}, i === LOGIN_REWARDS.length - 1 ? '🎁' : '🪙'),
+        h('span', {}, String(coins))));
+    let claimed = false;
+    const claim = () => {
+      if (claimed) return;
+      claimed = true;
+      this.actions.claimLogin();
+      this.closeModal();
+      onDone();
+    };
+    this.openModal(t('login.title'),
+      h('div', { class: 'login' },
+        h('p', {}, r.first ? t('login.first') : r.streak > 1 ? t('login.streak', { n: r.streak }) : t('login.welcome')),
+        h('div', { class: 'login-days' }, days),
+        h('p', { class: 'muted' }, t('login.hint')),
+        h('div', { class: 'menu-buttons' }, h('button', { class: 'btn primary big', onclick: claim }, t('login.claim', { n: r.coins })))),
+      claim);
+  }
+
+  /** Photo mode: the HUD hides, Pip and the pets pose; pick a filter and zoom, then snap. */
+  showPhotoMode(): void {
+    if (this.photoEl || !this.game) return;
+    this.closePanel();
+    this.closeDialog();
+    this.hud.hidden = true;
+    this.actions.photo(true);
+    const canvas = () => document.querySelector('#game canvas') as HTMLCanvasElement | null;
+    let filter = 'none';
+    const filterBtns = PHOTO_FILTERS.map(([id, css]) => {
+      const b = h('button', { class: `tab ${id === 'none' ? 'on' : ''}`, onclick: () => {
+        filter = css;
+        const c = canvas();
+        if (c) c.style.filter = css === 'none' ? '' : css;
+        filterBtns.forEach((x) => x.classList.toggle('on', x === b));
+      } }, t(`photo.filter_${id}`));
+      return b;
+    });
+    const zoom = h('input', { type: 'range', min: 1, max: 2, step: 0.05, value: 1, 'aria-label': t('photo.zoom'), oninput: (e: Event) => this.actions.photoZoom(Number((e.target as HTMLInputElement).value)) });
+    const close = () => {
+      const c = canvas();
+      if (c) c.style.filter = '';
+      this.photoEl?.remove();
+      this.photoEl = null;
+      this.actions.photo(false);
+      this.hud.hidden = false;
+      document.removeEventListener('keydown', key);
+    };
+    const snap = async () => {
+      const url = await this.actions.snapshot(filter);
+      if (!url) {
+        this.info(t('photo.failed'));
+        return;
+      }
+      const name = `echo-island-day-${this.game!.day}.png`;
+      this.openModal(t('photo.title'),
+        h('div', { class: 'photo-preview' },
+          h('img', { src: url, alt: t('photo.alt') }),
+          h('div', { class: 'menu-buttons row-buttons' },
+            h('a', { class: 'btn primary', href: url, download: name }, `⬇ ${t('photo.save')}`),
+            h('button', { class: 'btn', onclick: () => this.closeModal() }, t('photo.again')))));
+    };
+    const key = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !this.modalEl) close();
+    };
+    document.addEventListener('keydown', key);
+    this.photoEl = h('div', { class: 'photo-ui' },
+      h('div', { class: 'photo-frame', 'aria-hidden': 'true' }),
+      h('div', { class: 'photo-top' }, h('strong', {}, `📷 ${t('photo.title')}`), h('button', { class: 'close', 'aria-label': t('common.close'), onclick: close }, '✕')),
+      h('div', { class: 'photo-bottom' },
+        h('div', { class: 'tabs' }, filterBtns),
+        h('label', { class: 'setting' }, h('span', {}, t('photo.zoom')), zoom),
+        h('button', { class: 'btn primary big snap', onclick: () => void snap() }, `📸 ${t('photo.snap')}`)));
+    this.root.append(this.photoEl);
   }
 
   /** Fishing mini-game at the Moonlit Lake dock (App Flow 18): cast, wait, react, reel. */
@@ -1198,12 +1443,13 @@ export class UI {
   private onKey(e: KeyboardEvent): void {
     if (this.fishingOpen) return;
     if (e.key === 'Escape') {
+      if (this.photoEl && !this.modalEl) return;
       if (this.modalEl) this.closeModal();
       else if (this.panelEl) this.closePanel();
       else if (this.game && !this.screenEl && !this.dialogOpen) this.openPanel('settings');
       return;
     }
-    if (!this.game || this.screenEl || this.dialogOpen || this.modalEl) return;
+    if (!this.game || this.screenEl || this.dialogOpen || this.modalEl || this.photoEl) return;
     const target = e.target as HTMLElement;
     if (target.tagName === 'INPUT' || target.tagName === 'SELECT') return;
     const map: Record<string, PanelId> = { j: 'journal', i: 'bag', m: 'map', k: 'book', b: 'build', p: 'companion' };

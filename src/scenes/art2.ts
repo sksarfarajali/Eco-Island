@@ -563,6 +563,7 @@ const THEMES: Record<string, { floor: string; floor2: string; wall: string; wall
   temple: { floor: '#cdbd92', floor2: '#c3b286', wall: '#6d6858', wallTop: '#9a9583', water: '#2c4a6a', bg: '#3e3b30' },
   highlands: { floor: '#a7d982', floor2: '#97cc74', wall: '#8a8f98', wallTop: '#b4bac2', water: '#2a2f45', bg: '#7cc7ec' },
   grove: { floor: '#3f3a56', floor2: '#4a4462', wall: '#221a30', wallTop: '#3b2150', water: '#1a1026', bg: '#120c1c' },
+  isle: { floor: '#f1dc9c', floor2: '#8fd17a', wall: '#2b9fd0', wallTop: '#2b9fd0', water: '#3bb5e3', bg: '#2b9fd0' },
   grove_healed: { floor: '#7fcf8a', floor2: '#72c27e', wall: '#2f6b48', wallTop: '#4fa95a', water: '#2b6f9a', bg: '#1f4a36' },
 };
 
@@ -588,6 +589,11 @@ export function makeAreaGround(scene: Phaser.Scene, area: AreaDef, healed = fals
       const ch = area.rows[ty][tx];
       const x = tx * TILE;
       const y = ty * TILE;
+      if (ch === '#' && area.theme === 'isle') {
+        ctx.fillStyle = c.water;
+        ctx.fillRect(x, y, TILE, TILE);
+        continue;
+      }
       if (ch === '#') {
         const below = ty + 1 < area.h && area.rows[ty + 1][tx] !== '#';
         ctx.fillStyle = c.wall;
@@ -612,7 +618,7 @@ export function makeAreaGround(scene: Phaser.Scene, area: AreaDef, healed = fals
         continue;
       }
       if (ch === ' ') continue;
-      ctx.fillStyle = ch === ',' || (tx * 7 + ty * 3) % 5 === 0 ? c.floor2 : c.floor;
+      ctx.fillStyle = ch === ',' || (area.theme !== 'isle' && (tx * 7 + ty * 3) % 5 === 0) ? c.floor2 : c.floor;
       ctx.fillRect(x, y, TILE, TILE);
       if (area.theme === 'temple') {
         ctx.strokeStyle = 'rgba(90,80,60,0.25)';

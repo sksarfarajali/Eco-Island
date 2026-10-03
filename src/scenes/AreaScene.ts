@@ -13,6 +13,7 @@ import {
 import { TILE } from '../core/config';
 import { t } from '../core/i18n';
 import type { CreatureId } from '../core/types';
+import { REEF_COST } from '../core/config';
 import { makeAreaGround } from './art2';
 import { PlayScene, img, type Blocker, type Enemy, type Interactable } from './PlayScene';
 
@@ -31,6 +32,7 @@ export class AreaScene extends PlayScene {
   private cageGuards = 0;
   private bloom: Phaser.GameObjects.Image[] = [];
   private echoPlaying = false;
+  private marina: { sprite: Phaser.GameObjects.Image; marker: Phaser.GameObjects.Image; tag: Phaser.GameObjects.Text; obj: AreaObject } | null = null;
 
   constructor() {
     super('area');
@@ -44,6 +46,20 @@ export class AreaScene extends PlayScene {
     this.bloom = [];
     this.cageGuards = 0;
     this.echoPlaying = false;
+    this.marina = null;
+  }
+
+  protected outdoor(): boolean {
+    return this.area === 'highlands' || this.area === 'isle';
+  }
+
+  protected fogLevel(): number {
+    const base = super.fogLevel();
+    if (this.area !== 'highlands') return base;
+    // morning mist always hangs over the highlands, and fog days are thicker up here
+    const h = this.game_.hour;
+    const mist = h >= 5 && h < 9 ? 0.35 : 0;
+    return Math.max(mist, base ? 0.75 : 0);
   }
 
   protected worldSize() {
@@ -52,7 +68,7 @@ export class AreaScene extends PlayScene {
 
   protected backgroundColor(): string {
     // matches each theme's wall colour so margins around small maps read as rock
-    return { caves: '#221c33', temple: '#6d6858', highlands: '#8a8f98', grove: '#221a30' }[this.def.theme];
+    return { caves: '#221c33', temple: '#6d6858', highlands: '#8a8f98', grove: '#221a30', isle: '#2b9fd0' }[this.def.theme];
   }
 
   protected arrivalPoint(): { x: number; y: number } {
@@ -75,7 +91,7 @@ export class AreaScene extends PlayScene {
     const st = this.game_.state;
     let base = this.def.baseDark;
     if (this.area === 'grove' && st.world.ending === 'heal') base = 0.1;
-    return Math.max(base, this.area === 'highlands' ? this.game_.darkness() : this.game_.darkness() * 0.5);
+    return Math.max(base, this.outdoor() ? this.game_.darkness() : this.game_.darkness() * 0.5);
   }
 
   protected checkZone(): void {
@@ -103,8 +119,12 @@ export class AreaScene extends PlayScene {
         }
         continue;
       }
+      if (o.ch === 'N') {
+        this.createMarina(o);
+        continue;
+      }
       const key = this.textureFor(o);
-      if (key) this.views.push({ obj: o, sprite: img(this, o.x, o.y + 14, key).setDepth(o.y + 14) });
+      if (key) this.views.push({ obj: o, sprite: img(this, o.x, o.y + 14, key).setDepth(o.ch === 'z' || o.ch === 'Y' ? -4000 : o.y + 14) });
       if (o.ch === 'g' || o.ch === 'w') this.maybeSpawn(o);
       if (o.ch === 'B' && !st.world.bossDefeated && st.quests.q_finale.status === 'active') this.spawnEnemy('hollow', o.x, o.y + 40);
     }
@@ -116,6 +136,21 @@ export class AreaScene extends PlayScene {
         for (let i = 0; i < 6; i++) this.bloom.push(img(this, o.x + (i - 2.5) * 22, o.y + 26 + (i % 2) * 14, 'skybloom'));
       }
     }
+  }
+
+  private createMarina(o: AreaObject): void {
+    img(this, o.x, o.y + 8, 'shadow', 0.5).setDepth(o.y + 7);
+    const sprite = img(this, o.x, o.y + 8, 'npc_marina').setDepth(o.y + 8);
+    this.breathe(sprite, 300);
+    const marker = img(this, o.x, o.y - 30, 'marker_quest').setDepth(9500).setVisible(false);
+    if (!this.settings.reducedMotion) this.tweens.add({ targets: marker, y: '-=4', duration: 600, yoyo: true, repeat: -1 });
+    const tag = this.add
+      .text(o.x, o.y - 30, t('npc.marina'), { fontFamily: 'Nunito, system-ui, sans-serif', fontSize: '11px', fontStyle: 'bold', color: '#ffffff', backgroundColor: '#2b2135cc', padding: { x: 5, y: 2 } })
+      .setOrigin(0.5, 1)
+      .setResolution(2)
+      .setDepth(9400)
+      .setVisible(false);
+    this.marina = { sprite, marker, tag, obj: o };
   }
 
   private maybeSpawn(o: AreaObject): void {
@@ -153,7 +188,12 @@ export class AreaScene extends PlayScene {
       case 'V': return 'viewpoint';
       case 'C': return 'cage';
       case 'G': return 'grove_gate';
-      case 'X': return 'exit';
+      case 'X': return this.area === 'isle' ? 'boat' : 'exit';
+      case 'k': return 'coral_node';
+      case 'q': return 'shell_node';
+      case 'j': return 'palm';
+      case 'z': return 'reef_dead';
+      case 'Y': return 'pier';
       default: return null;
     }
   }
@@ -176,12 +216,22 @@ export class AreaScene extends PlayScene {
       switch (o.ch) {
         case 'c':
         case 'r':
-        case 'f': {
+        case 'f':
+        case 'k':
+        case 'q': {
           const full = st.world.nodes[o.id]?.stage === 'full';
-          s.setTexture(full ? this.textureFor(o)! : o.ch === 'c' ? 'crystal_empty' : o.ch === 'r' ? 'rock_empty' : 'flower_empty');
-          if (full && o.ch !== 'f') blockers.push({ kind: 'circle', x: o.x, y: o.y + 4, r: 12 });
+          const empty: Record<string, string> = { c: 'crystal_empty', r: 'rock_empty', f: 'flower_empty', k: 'coral_empty', q: 'shell_empty' };
+          s.setTexture(full ? this.textureFor(o)! : empty[o.ch]);
+          if (full && (o.ch === 'c' || o.ch === 'r' || o.ch === 'k')) blockers.push({ kind: 'circle', x: o.x, y: o.y + 4, r: 12 });
           break;
         }
+        case 'j':
+          s.setTexture(st.world.nodes[o.id]?.stage === 'full' ? 'palm' : 'palm_empty');
+          blockers.push({ kind: 'circle', x: o.x, y: o.y + 8, r: 9 });
+          break;
+        case 'z':
+          s.setTexture(st.world.reefHealed.includes(o.id) ? 'reef_alive' : 'reef_dead');
+          break;
         case 'K':
         case 'H':
           solidTile(o, 24, 20);
@@ -260,6 +310,13 @@ export class AreaScene extends PlayScene {
       c.sprite.setVisible(visible);
     }
     this.bloom.forEach((b) => b.setVisible(st.island.visuals.includes('highlands_bloom')));
+    if (this.marina) {
+      blockers.push({ kind: 'circle', x: this.marina.obj.x, y: this.marina.obj.y + 6, r: 9 });
+      const offers = this.game_.questsOfferedBy('marina').length > 0;
+      this.marina.marker.setVisible(offers);
+      this.marina.tag.setY(this.marina.obj.y - (offers ? 44 : 30));
+      this.marina.sprite.setFlipX(this.player && this.marina.obj.x > this.player.x);
+    }
     this.blockers = blockers;
   }
 
@@ -280,6 +337,10 @@ export class AreaScene extends PlayScene {
 
   protected updateWorld(time: number, dt: number): void {
     const st = this.game_.state;
+    if (this.marina && this.mode === 'play') {
+      const near = Math.hypot(this.marina.obj.x - this.player.x, this.marina.obj.y - this.player.y) < 130;
+      if (this.marina.tag.visible !== near) this.marina.tag.setVisible(near);
+    }
     for (const [id, c] of this.creatureViews) {
       if (!c.sprite.visible) continue;
       if (time > c.next) {
@@ -323,9 +384,25 @@ export class AreaScene extends PlayScene {
         case 'c':
         case 'r':
         case 'f':
+        case 'k':
+        case 'q':
+        case 'j':
           if (st.world.nodes[o.id]?.stage === 'full') {
-            add(o, t(o.ch === 'c' ? 'act.mine_crystal' : o.ch === 'r' ? 'act.mine' : 'act.pick_flower'), () => this.report(g.gather(o.id, o)));
+            const label: Record<string, string> = { c: 'act.mine_crystal', r: 'act.mine', f: 'act.pick_flower', k: 'act.coral', q: 'act.shells', j: 'act.coconut' };
+            add(o, t(label[o.ch]), () => this.report(g.gather(o.id, o)));
           }
+          break;
+        case 'z':
+          if (!st.world.reefHealed.includes(o.id)) {
+            add(o, t('act.heal_reef', { n: REEF_COST.essence }), () => {
+              const r = g.healReef(o.id);
+              if (r.ok) this.burst(o.x, o.y, 0xff9ad6, 14);
+              this.report(r);
+            });
+          }
+          break;
+        case 'Y':
+          add(o, t('act.fish'), () => this.hooks.startFishing());
           break;
         case 'K':
           if (!st.world.sunKeyFound) add(o, t('act.take_key'), () => {
@@ -418,6 +495,10 @@ export class AreaScene extends PlayScene {
       });
     }
     for (const [id, c] of this.creatureViews) if (c.sprite.visible) list.push(this.creatureInteractable(id, c.sprite));
+    if (this.marina) {
+      const o = this.marina.obj;
+      list.push({ id: 'npc_marina', x: o.x, y: o.y, label: t('act.talk', { name: t('npc.marina') }), enabled: true, act: () => this.hooks.dialog(g.talk('marina')) });
+    }
   }
 
   /** Pip's Echo replays the rune order at the mural (and says it in words, for accessibility). */
@@ -453,6 +534,8 @@ export class AreaScene extends PlayScene {
       if (o.ch === 'C' && !st.world.skyhareFreed) out.push(o);
       if (o.ch === 'G' && st.island.visuals.includes('grove_gate_open') && !st.world.ending) out.push(o);
       if (o.ch === 'V' && !st.discoveries.places.includes('highland_view')) out.push(o);
+      if (o.ch === 'z' && st.quests.q_reef.status === 'active' && !st.world.reefHealed.includes(o.id)) out.push(o);
+      if (o.ch === 'N' && st.quests.q_reef.status === 'available') out.push(o);
     }
     for (const [id, c] of this.creatureViews) if (c.sprite.visible && st.creatures[id].state === 'unknown') out.push({ x: c.sprite.x, y: c.sprite.y });
     return out;
@@ -465,7 +548,9 @@ export class AreaScene extends PlayScene {
       if (o.ch === 'c' && st.world.nodes[o.id]?.stage === 'full') light(o.x, o.y, 56);
       if (o.ch === 'K' || o.ch === 'H' || o.ch === 'T' || o.ch === 'L') light(o.x, o.y, 70);
       if (o.ch === 'X') light(o.x, o.y, 60);
+      if (o.ch === 'z' && st.world.reefHealed.includes(o.id)) light(o.x, o.y, 50);
     }
+    if (this.marina) light(this.marina.obj.x, this.marina.obj.y - 10, 70);
     for (const c of this.creatureViews.values()) if (c.sprite.visible) light(c.sprite.x, c.sprite.y - 8, 40);
     for (const e of this.enemies) light(e.sprite.x, e.sprite.y - 10, e.boss ? 90 : 30);
   }

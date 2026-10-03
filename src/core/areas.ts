@@ -15,6 +15,9 @@ import type { AreaId, CreatureId, ZoneId } from './types';
  *   O  stone block         P  pressure plate       R  reset lever
  *   V  viewpoint           C  bramble cage         G  Shadow Grove gate
  *   a p h t o i  creature homes (gleamwing, pebblepup, skyhare, thistlegoat, archowl, wispling)
+ *   y u  creature homes on Coral Isle (shellcrab, seapup)
+ *   k  coral node          q  shell node          j  coconut palm
+ *   z  bleached reef spot  N  Marina              Y  fishing pier
  */
 const MAPS: Record<Exclude<AreaId, 'island'>, string> = {
   caves: `
@@ -98,6 +101,23 @@ const MAPS: Record<Exclude<AreaId, 'island'>, string> = {
 ############.....S....############
 ##############..X...##############
 ##################################`,
+  isle: `
+########################################
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+#~~~~~~~~~z~~~~~~~~~~~~~~~z~~~~~~~~~~~~#
+#~~~~~~~.......~~~~~~~~~.......~~~~~~~~#
+#~~~~~.....j.....,,,,,.....j....~~~~~~~#
+#~~~~...k.....,,,,j,,,,,,.....q...~~~~~#
+#~~~...........,,,,,,N,,,,.........~~~~#
+#~~..j....q.....,,,,,,,,,....k...j..~~~#
+#~z.......y......,,,,,......u......z~~~#
+#~~~....k......j...........j.....~~~~~~#
+#~~~~.......q.......Y.......q...~~~~~~~#
+#~~~~~~....j.....~~~~~~~.....~~~~~~~~~~#
+#~~~~~~~~......~~~~~~~~~~~~~~~~~~~~~~~~#
+#~~~~~~~~~..S..~~~~~~~~~~~~~~~~~~~~~~~~#
+#~~~~~~~~~~.X.~~~~~~~~~~~~~~~~~~~~~~~~~#
+########################################`,
 };
 
 export interface AreaObject {
@@ -119,8 +139,8 @@ export interface AreaDef {
   spawn: { x: number; y: number };
   objects: AreaObject[];
   /** Where an exit from this area leads. */
-  exitTo: { area: AreaId; poi: 'caveEntrance' | 'templeGate' | 'highlandsPath' | 'groveGate' };
-  theme: 'caves' | 'temple' | 'highlands' | 'grove';
+  exitTo: { area: AreaId; poi: 'caveEntrance' | 'templeGate' | 'highlandsPath' | 'groveGate' | 'boat' };
+  theme: 'caves' | 'temple' | 'highlands' | 'grove' | 'isle';
   /** Minimum darkness regardless of time of day (caves are always dark). */
   baseDark: number;
 }
@@ -132,6 +152,8 @@ const CREATURE_HOMES: Record<string, CreatureId> = {
   t: 'thistlegoat',
   o: 'archowl',
   i: 'wispling',
+  y: 'shellcrab',
+  u: 'seapup',
 };
 
 export const creatureForHome = (ch: string): CreatureId | undefined => CREATURE_HOMES[ch];
@@ -141,6 +163,7 @@ const META: Record<Exclude<AreaId, 'island'>, Pick<AreaDef, 'exitTo' | 'theme' |
   temple: { exitTo: { area: 'island', poi: 'templeGate' }, theme: 'temple', baseDark: 0.3 },
   highlands: { exitTo: { area: 'island', poi: 'highlandsPath' }, theme: 'highlands', baseDark: 0 },
   grove: { exitTo: { area: 'highlands', poi: 'groveGate' }, theme: 'grove', baseDark: 0.45 },
+  isle: { exitTo: { area: 'island', poi: 'boat' }, theme: 'isle', baseDark: 0 },
 };
 
 const centre = (t: number) => t * TILE + TILE / 2;
@@ -168,6 +191,7 @@ export const AREAS: Record<Exclude<AreaId, 'island'>, AreaDef> = {
   temple: parse('temple'),
   highlands: parse('highlands'),
   grove: parse('grove'),
+  isle: parse('isle'),
 };
 
 export const objectsOf = (area: AreaDef, ch: string): AreaObject[] => area.objects.filter((o) => o.ch === ch);
