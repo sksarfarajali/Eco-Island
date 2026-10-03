@@ -4,7 +4,7 @@ import { applyTimeAway } from './core/growth';
 import { setLanguage, t } from './core/i18n';
 import { newGameState } from './core/state';
 import type { AreaId, Appearance, BuildingId, EggChoice, GameState, ItemId, Settings, ZoneId } from './core/types';
-import { Audio } from './platform/audio';
+import { Audio, type Mood } from './platform/audio';
 import { SaveStore, requestPersistentStorage } from './platform/saves';
 import { applySettingsToDocument, loadSettings, saveSettings } from './platform/settings';
 import { TabLock } from './platform/tablock';
@@ -58,6 +58,13 @@ export class App {
     setInterval(() => void this.saveNow(), AUTOSAVE_MS);
     // keep the HUD clock ticking (without touching open panels)
     setInterval(() => this.playing && this.ui.refreshHud(false), 1000);
+    // music and ambience follow the zone, the night and boss fights
+    setInterval(() => this.audio.setMood(this.mood()), 1000);
+    // a soft click for every button
+    document.addEventListener('click', (e) => {
+      const el = (e.target as HTMLElement).closest?.('button, .btn, .tab, .swatch');
+      if (el && !el.closest('.action-btn, .combat-btn')) this.audio.sfx('click');
+    }, true);
   }
 
   async start(): Promise<void> {
@@ -80,6 +87,17 @@ export class App {
       notice = backup ? t('menu.notice_restored') : t('menu.notice_failed');
     }
     this.showMenu(notice);
+  }
+
+  private currentZone: ZoneId = 'village';
+  private bossActive = false;
+
+  private mood(): Mood {
+    if (!this.playing || !this.game) return 'menu';
+    if (this.bossActive) return 'boss';
+    const z = this.currentZone;
+    if ((z === 'village' || z === 'forest' || z === 'lake' || z === 'highlands') && this.game.darkness() > 0.6) return 'night';
+    return z;
   }
 
   private showMenu(notice: string | null = null): void {
@@ -269,10 +287,16 @@ export class App {
       startFishing: () => this.ui.showFishing(),
       choosePlot: (plotId, b) => void this.ui.askBuild(plotId, b),
       info: (text) => this.ui.info(text),
-      zoneChanged: (z: ZoneId) => this.ui.setZone(z),
+      zoneChanged: (z: ZoneId) => {
+        this.currentZone = z;
+        this.ui.setZone(z);
+      },
       travel: (area, arrive) => this.travel(area, arrive),
       combat: (on) => this.ui.setCombat(on),
-      bossBar: (hp, max) => this.ui.setBossBar(hp, max),
+      bossBar: (hp, max) => {
+        this.bossActive = max > 0;
+        this.ui.setBossBar(hp, max);
+      },
     };
   }
 

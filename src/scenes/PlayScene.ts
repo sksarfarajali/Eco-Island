@@ -17,7 +17,7 @@ import { CREATURES, ITEMS } from '../core/content';
 import type { Dialog, Game } from '../core/game';
 import { t } from '../core/i18n';
 import type { AreaId, BuildingId, CreatureId, Settings, ZoneId } from '../core/types';
-import { RES, makeNovaTexture, makeTextures } from './art';
+import { OUTLINED, RES, makeNovaTexture, makeTextures, outlineTexture } from './art';
 import { makeMvpTextures } from './art2';
 
 /** Callbacks from the world to the HTML UI. */
@@ -191,6 +191,7 @@ export abstract class PlayScene extends Phaser.Scene {
   create(): void {
     makeTextures(this);
     makeMvpTextures(this);
+    OUTLINED.forEach((k) => outlineTexture(this, k));
     this.buildWorld();
     this.createPlayer();
     this.createNight();
@@ -249,7 +250,8 @@ export abstract class PlayScene extends Phaser.Scene {
     const start = this.arrivalPoint();
     const shadow = this.add.image(0, 0, 'shadow').setScale(1 / RES);
     const p = this.game_.state.player;
-    this.novaSprite = this.add.image(0, 2, makeNovaTexture(this, p.appearance, p.cosmetics)).setOrigin(0.5, 1).setScale(1 / RES);
+    this.novaKey = makeNovaTexture(this, p.appearance, p.cosmetics);
+    this.novaSprite = this.add.image(0, 2, this.novaKey).setOrigin(0.5, 1).setScale(1 / RES);
     this.shieldIcon = this.add.image(12, -10, 'shield').setScale(0.8 / RES).setVisible(false);
     this.player = this.add.container(start.x, start.y, [shadow, this.novaSprite, this.shieldIcon]);
     this.player.setVisible(this.mode === 'play');
@@ -265,6 +267,7 @@ export abstract class PlayScene extends Phaser.Scene {
     const fox = this.game_.state.creatures.glowfox;
     if (this.mode === 'play' && fox.state === 'bonded') {
       this.follower = img(this, start.x + 30, start.y + 10, fox.evolved ? 'lumifox' : 'glowfox');
+      this.breathe(this.follower);
     }
   }
 
@@ -500,16 +503,51 @@ export abstract class PlayScene extends Phaser.Scene {
       if (this.moveTarget && before.x === this.player.x && before.y === this.player.y) this.moveTarget = null;
       if (Math.abs(vx) > 0.1) this.facing = vx > 0 ? 1 : -1;
       this.walkTime += dt;
+      this.stepAcc += dt * (speed / SPEED);
+      if (this.stepAcc > 0.3) {
+        this.stepAcc = 0;
+        this.game_.events.emit('sfx', this.footstepSound());
+      }
     } else {
       this.walkTime = 0;
     }
     this.novaSprite.setFlipX(this.facing < 0);
-    this.novaSprite.y = moving && !this.settings.reducedMotion ? 2 - Math.abs(Math.sin(this.walkTime * 12)) * 3 : 2;
+    // walk cycle: stand, left step, stand, right step
+    const frame = moving ? [0, 1, 0, 2][Math.floor(this.walkTime * 9) % 4] : 0;
+    const key = frame ? `${this.novaKey}_${frame}` : this.novaKey;
+    if (this.novaSprite.texture.key !== key) this.novaSprite.setTexture(key);
+    this.novaSprite.y = moving && !this.settings.reducedMotion ? 2 - Math.abs(Math.sin(this.walkTime * 14)) * 2 : 2;
     this.player.setDepth(this.player.y);
     const pos = this.game_.state.player.position;
     pos.x = Math.round(this.player.x);
     pos.y = Math.round(this.player.y);
     this.checkZone();
+  }
+
+  private stepAcc = 0;
+  private novaKey = '';
+  private trailAcc = 0;
+
+  /** Footsteps sound different on grass, sand, stone and fallen leaves. */
+  protected footstepSound(): 'step_grass' | 'step_sand' | 'step_stone' | 'step_leaves' {
+    switch (this.zone) {
+      case 'caves':
+      case 'temple':
+        return 'step_stone';
+      case 'lake':
+        return 'step_sand';
+      case 'grove':
+        return 'step_leaves';
+      default:
+        return 'step_grass';
+    }
+  }
+
+  /** Gentle idle "breathing" so villagers and creatures feel alive (a slow squash, never a flash). */
+  protected breathe(sprite: Phaser.GameObjects.Image, delay = 0): void {
+    if (this.settings.reducedMotion) return;
+    const base = sprite.scaleY;
+    this.tweens.add({ targets: sprite, scaleY: base * 1.045, scaleX: sprite.scaleX * 0.985, duration: 1100 + Math.random() * 400, delay, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
   }
 
   protected canStand(x: number, y: number, r = 8): boolean {
@@ -532,6 +570,18 @@ export abstract class PlayScene extends Phaser.Scene {
     this.pip.x += (tx - this.pip.x) * f;
     this.pip.y += (ty - this.pip.y) * f;
     this.pipSprite.setTexture(`pip_${this.game_.state.pip.mood}`);
+    // a soft sparkle trail behind Pip while it flies
+    this.trailAcc += dt;
+    const flying = Math.hypot(tx - this.pip.x, ty - this.pip.y) > 6;
+    if (flying && this.trailAcc > 0.09 && !this.settings.reducedMotion && this.settings.graphics !== 'low') {
+      this.trailAcc = 0;
+      const sp = this.add
+        .image(this.pip.x + (Math.random() - 0.5) * 8, this.pip.y + 6, 'spark')
+        .setScale(0.7 / RES)
+        .setTint([0xbff3ff, 0xfff6b0, 0xffc8e6][Math.floor(Math.random() * 3)])
+        .setDepth(19999);
+      this.tweens.add({ targets: sp, y: sp.y + 10, alpha: 0, scale: 0.2 / RES, duration: 600, onComplete: () => sp.destroy() });
+    }
   }
 
   private updateFollower(dt: number): void {
@@ -1030,7 +1080,8 @@ export abstract class PlayScene extends Phaser.Scene {
     this.burst(this.player.x, this.player.y - 20, 0xfff6b0, this.settings.graphics === 'low' ? 6 : 14);
     // cosmetics may have changed
     const p = this.game_.state.player;
-    this.novaSprite.setTexture(makeNovaTexture(this, p.appearance, p.cosmetics));
+    this.novaKey = makeNovaTexture(this, p.appearance, p.cosmetics);
+    this.novaSprite.setTexture(this.novaKey);
   }
 
   protected burst(x: number, y: number, tint: number, count: number): void {

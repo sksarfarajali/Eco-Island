@@ -25,7 +25,7 @@ const SANCTUARY_GUESTS: CreatureId[] = ['ripplet', 'mossprite', 'gleamwing', 'pe
 export class IslandScene extends PlayScene {
   private nodeViews = new Map<string, Phaser.GameObjects.Image>();
   private plotViews = new Map<string, { base: Phaser.GameObjects.Image; label: Phaser.GameObjects.Text; produce: Phaser.GameObjects.Image[] }>();
-  private npcViews = new Map<NpcId, { sprite: Phaser.GameObjects.Image; shadow: Phaser.GameObjects.Image; marker: Phaser.GameObjects.Image }>();
+  private npcViews = new Map<NpcId, { sprite: Phaser.GameObjects.Image; shadow: Phaser.GameObjects.Image; marker: Phaser.GameObjects.Image; tag: Phaser.GameObjects.Text }>();
   private creatures = new Map<CreatureId, CreatureView>();
   private guests = new Map<CreatureId, Phaser.GameObjects.Image>();
   private decor: Record<string, Phaser.GameObjects.GameObject[]> = {};
@@ -270,7 +270,15 @@ export class IslandScene extends PlayScene {
       const sprite = img(this, 0, 0, `npc_${id}`);
       const marker = img(this, 0, 0, 'marker_quest').setDepth(9500);
       if (!this.settings.reducedMotion) this.tweens.add({ targets: marker, y: '-=4', duration: 600, yoyo: true, repeat: -1 });
-      this.npcViews.set(id, { sprite, shadow, marker });
+      this.breathe(sprite, Math.random() * 600);
+      // name tag shown when Nova walks close
+      const tag = this.add
+        .text(0, 0, t(`npc.${id}`), { fontFamily: 'Nunito, system-ui, sans-serif', fontSize: '11px', fontStyle: 'bold', color: '#ffffff', backgroundColor: '#2b2135cc', padding: { x: 5, y: 2 } })
+        .setOrigin(0.5, 1)
+        .setResolution(2)
+        .setDepth(9400)
+        .setVisible(false);
+      this.npcViews.set(id, { sprite, shadow, marker, tag });
     }
   }
 
@@ -284,6 +292,7 @@ export class IslandScene extends PlayScene {
     for (const [id, home, radius, water] of defs) {
       const shadow = img(this, home.x, home.y, 'shadow', 0.5).setScale(0.7 / RES);
       const sprite = img(this, home.x, home.y, id);
+      this.breathe(sprite, Math.random() * 800);
       this.creatures.set(id, { id, sprite, shadow, home: { ...home }, radius, target: { ...home }, nextMove: 0, water });
     }
     for (const id of SANCTUARY_GUESTS) this.guests.set(id, img(this, 0, 0, id).setVisible(false));
@@ -346,6 +355,12 @@ export class IslandScene extends PlayScene {
 
   protected updateWorld(time: number, dt: number): void {
     const st = this.game_.state;
+    if (this.mode === 'play') {
+      for (const [id, v] of this.npcViews) {
+        const near = st.npcs[id].present && Math.hypot(v.sprite.x - this.player.x, v.sprite.y - this.player.y) < 130;
+        if (v.tag.visible !== near) v.tag.setVisible(near);
+      }
+    }
     for (const c of this.creatures.values()) {
       const visible = this.creatureVisible(c.id);
       c.sprite.setVisible(visible);
@@ -472,6 +487,7 @@ export class IslandScene extends PlayScene {
       v.shadow.setPosition(pos.x, pos.y + 8).setDepth(pos.y + 7).setVisible(present);
       v.sprite.setFlipX(pos.x > this.player.x);
       v.marker.setPosition(pos.x, pos.y - 30).setVisible(present && g.questsOfferedBy(id).length > 0);
+      v.tag.setPosition(pos.x, pos.y - (v.marker.visible ? 44 : 30));
     }
 
     this.eggInLog.setVisible(st.world.egg === 'hidden');

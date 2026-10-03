@@ -97,7 +97,9 @@ export class AreaScene extends PlayScene {
       const home = creatureForHome(o.ch);
       if (home) {
         if (!this.creatureViews.has(home)) {
-          this.creatureViews.set(home, { sprite: img(this, o.x, o.y + 10, home), home: { x: o.x, y: o.y }, target: { x: o.x, y: o.y }, next: 0 });
+          const sprite = img(this, o.x, o.y + 10, home);
+          this.breathe(sprite, Math.random() * 800);
+          this.creatureViews.set(home, { sprite, home: { x: o.x, y: o.y }, target: { x: o.x, y: o.y }, next: 0 });
         }
         continue;
       }

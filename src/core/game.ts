@@ -38,7 +38,8 @@ import type {
 
 export type SfxName =
   | 'collect' | 'chop' | 'mine' | 'success' | 'build' | 'error' | 'coin' | 'plant' | 'levelup' | 'magic' | 'splash'
-  | 'hit' | 'hurt' | 'swing' | 'dodge' | 'block' | 'bite' | 'door';
+  | 'hit' | 'hurt' | 'swing' | 'dodge' | 'block' | 'bite' | 'door'
+  | 'click' | 'step_grass' | 'step_sand' | 'step_stone' | 'step_leaves';
 
 export interface ToastEvent {
   text: string;
