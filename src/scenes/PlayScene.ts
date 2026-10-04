@@ -468,6 +468,32 @@ export abstract class PlayScene extends Phaser.Scene {
     const st = this.game_.state;
     this.pipCrown?.setVisible(st.pip.cosmetic === 'flower_crown');
     this.syncWorld();
+    this.unstick();
+  }
+
+  /**
+   * If something now stands where Nova is (a new building or decoration, or an old saved spot),
+   * move Nova to the nearest free place so they can never be trapped.
+   */
+  protected unstick(): void {
+    if (this.mode !== 'play' || !this.player || this.canStand(this.player.x, this.player.y)) return;
+    const { x, y } = this.player;
+    for (let r = 12; r <= 320; r += 12) {
+      // prefer the spot in front of (below) the obstacle, then try all around
+      for (let k = 0; k < 16; k++) {
+        const a = Math.PI / 2 + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * (Math.PI / 8);
+        const nx = x + Math.cos(a) * r;
+        const ny = y + Math.sin(a) * r;
+        if (this.canStand(nx, ny)) {
+          this.player.setPosition(nx, ny);
+          this.moveTarget = null;
+          const pos = this.game_.state.player.position;
+          pos.x = Math.round(nx);
+          pos.y = Math.round(ny);
+          return;
+        }
+      }
+    }
   }
 
   private unit(x: number, y: number): { x: number; y: number } {
