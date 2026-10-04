@@ -7,7 +7,7 @@ import type { BuildingId, CreatureId, DecorId, ItemId, MinigameKind, NpcId, Zone
 import { RES } from './art';
 import { makeSeasonOverlays } from './art3';
 import { decorFree, makeGround, seeded } from './ground';
-import { PlayScene, img, type Blocker, type Interactable } from './PlayScene';
+import { PlayScene, WORLD_FONT, img, nameTag, type Blocker, type Interactable } from './PlayScene';
 
 /** A running mini-game on the island. */
 interface Minigame {
@@ -312,7 +312,7 @@ export class IslandScene extends PlayScene {
     for (const p of PLOTS) {
       const base = img(this, p.x, p.y + 28, 'plot').setDepth(p.y + 28);
       const label = this.add
-        .text(p.x, p.y - 40, '', { fontFamily: 'Nunito, system-ui, sans-serif', fontSize: '13px', color: '#ffffff', backgroundColor: '#2b2135aa', padding: { x: 6, y: 3 } })
+        .text(p.x, p.y - 40, '', { fontFamily: WORLD_FONT, fontSize: '13px', color: '#ffffff', backgroundColor: '#2b2135aa', padding: { left: 6, right: 8, top: 3, bottom: 3 } })
         .setOrigin(0.5)
         .setResolution(2)
         .setDepth(9000)
@@ -332,12 +332,7 @@ export class IslandScene extends PlayScene {
       if (!this.settings.reducedMotion) this.tweens.add({ targets: marker, y: '-=4', duration: 600, yoyo: true, repeat: -1 });
       this.breathe(sprite, Math.random() * 600);
       // name tag shown when Nova walks close
-      const tag = this.add
-        .text(0, 0, t(`npc.${id}`), { fontFamily: 'Nunito, system-ui, sans-serif', fontSize: '11px', fontStyle: 'bold', color: '#ffffff', backgroundColor: '#2b2135cc', padding: { x: 5, y: 2 } })
-        .setOrigin(0.5, 1)
-        .setResolution(2)
-        .setDepth(9400)
-        .setVisible(false);
+      const tag = nameTag(this, 0, 0, t(`npc.${id}`));
       this.npcViews.set(id, { sprite, shadow, marker, tag });
     }
   }

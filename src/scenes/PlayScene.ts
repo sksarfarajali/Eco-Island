@@ -102,6 +102,29 @@ const NIGHT_MARGIN = 160;
 export const img = (scene: Phaser.Scene, x: number, y: number, key: string, originY = 1) =>
   scene.add.image(x, y, key).setOrigin(0.5, originY).setScale(1 / RES);
 
+/** Font stack for text drawn in the world: system fonts are measured correctly on every phone. */
+export const WORLD_FONT = 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+
+/**
+ * A character's name tag. Roomy padding (and a sharper resolution) so that bold names are never
+ * clipped on phones whose fonts measure narrower than they draw.
+ */
+export const nameTag = (scene: Phaser.Scene, x: number, y: number, text: string): Phaser.GameObjects.Text =>
+  scene.add
+    .text(x, y, text, {
+      fontFamily: WORLD_FONT,
+      fontSize: '12px',
+      fontStyle: 'bold',
+      color: '#ffffff',
+      backgroundColor: '#2b2135d9',
+      padding: { left: 7, right: 9, top: 4, bottom: 4 },
+      testString: '|MÉqgyÅ',
+    })
+    .setOrigin(0.5, 1)
+    .setResolution(3)
+    .setDepth(9400)
+    .setVisible(false);
+
 /**
  * Shared play logic for every map: Nova and Pip, movement and collision, interaction prompts,
  * day/night lighting, Pip's chatter and the real-time combat system (App Flow 19).
@@ -1251,7 +1274,7 @@ export abstract class PlayScene extends Phaser.Scene {
 
   protected floatText(x: number, y: number, text: string): void {
     const tx = this.add
-      .text(x, y, text, { fontFamily: 'Nunito, system-ui, sans-serif', fontSize: '15px', color: '#ffffff', stroke: '#2b2135', strokeThickness: 4 })
+      .text(x, y, text, { fontFamily: WORLD_FONT, fontSize: '15px', color: '#ffffff', stroke: '#2b2135', strokeThickness: 4 })
       .setOrigin(0.5)
       .setResolution(2)
       .setDepth(30000);
@@ -1262,7 +1285,7 @@ export abstract class PlayScene extends Phaser.Scene {
     if (this.mode !== 'play') return;
     const bubble = this.add
       .text(0, 0, text, {
-        fontFamily: 'Nunito, system-ui, sans-serif',
+        fontFamily: WORLD_FONT,
         fontSize: '12px',
         color: '#2b2135',
         backgroundColor: '#ffffffee',

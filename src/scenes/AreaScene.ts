@@ -15,7 +15,7 @@ import { t } from '../core/i18n';
 import type { CreatureId } from '../core/types';
 import { REEF_COST } from '../core/config';
 import { makeAreaGround } from './art2';
-import { PlayScene, img, type Blocker, type Enemy, type Interactable } from './PlayScene';
+import { PlayScene, img, nameTag, type Blocker, type Enemy, type Interactable } from './PlayScene';
 
 interface ObjView {
   obj: AreaObject;
@@ -144,12 +144,7 @@ export class AreaScene extends PlayScene {
     this.breathe(sprite, 300);
     const marker = img(this, o.x, o.y - 30, 'marker_quest').setDepth(9500).setVisible(false);
     if (!this.settings.reducedMotion) this.tweens.add({ targets: marker, y: '-=4', duration: 600, yoyo: true, repeat: -1 });
-    const tag = this.add
-      .text(o.x, o.y - 30, t('npc.marina'), { fontFamily: 'Nunito, system-ui, sans-serif', fontSize: '11px', fontStyle: 'bold', color: '#ffffff', backgroundColor: '#2b2135cc', padding: { x: 5, y: 2 } })
-      .setOrigin(0.5, 1)
-      .setResolution(2)
-      .setDepth(9400)
-      .setVisible(false);
+    const tag = nameTag(this, o.x, o.y - 30, t('npc.marina'));
     this.marina = { sprite, marker, tag, obj: o };
   }
 
