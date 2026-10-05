@@ -605,6 +605,14 @@ export class Game {
     this.observe(id);
     if (c.state === 'bonded') {
       this.events.emit('float', { x: at?.x ?? 0, y: (at?.y ?? 0) - 24, text: '💛' });
+      // while a feeding task is open, bonded friends happily take a treat of their favourite food
+      if (this.wantsTreat(id)) {
+        this.state.inventory[def.likes]--;
+        this.events.emit('sfx', 'collect');
+        this.dailyProgress('feed', 1);
+        this.changed();
+        return { ok: true, message: t('msg.treat', { name: this.creatureName(id) }) };
+      }
       return { ok: true, message: t(`creature.${id}.bonded_line`) };
     }
     if (!def.likes || !this.has(def.likes)) {
@@ -626,6 +634,13 @@ export class Game {
     }
     this.changed();
     return { ok: true };
+  }
+
+  /** A bonded friend can be given a treat (counts as feeding) while today's feeding task is open. */
+  wantsTreat(id: CreatureId): boolean {
+    const c = this.state.creatures[id];
+    const open = this.state.daily.tasks.some((d) => d.kind === 'feed' && !d.done);
+    return c.state === 'bonded' && open && this.has(CREATURES[id].likes);
   }
 
   // ---------------------------------------------------------------- the egg

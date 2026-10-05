@@ -60,16 +60,24 @@ describe('daily tasks', () => {
     }
   });
 
-  it('does not ask to feed creatures once every creature is a bonded friend', () => {
+  it('bonded friends take a treat while a feeding task is open, and it counts', () => {
     const { g } = setup();
-    for (const c of Object.values(g.state.creatures)) c.state = 'bonded';
-    for (let i = 0; i < 40; i++) {
-      g.state.daily.date = '';
-      g.state.createdAt = new Date(2026, 0, i + 1).toISOString();
-      g.refreshDaily();
-      expect(g.state.daily.tasks.map((x) => x.kind)).not.toContain('feed');
-    }
+    for (const c of Object.values(g.state.creatures)) Object.assign(c, { state: 'bonded', bond: 100 });
+    g.state.daily = { ...g.state.daily, date: g.today(), tasks: [{ kind: 'feed', target: 2, progress: 0, done: false }] };
+    expect(g.wantsTreat('glowfox')).toBe(false); // no berries yet: just petting
+    g.state.inventory.glow_berry = 2;
+    expect(g.wantsTreat('glowfox')).toBe(true);
+    g.interactCreature('glowfox');
+    g.interactCreature('glowfox');
+    expect(g.state.daily.tasks[0].done).toBe(true);
+    expect(g.state.inventory.glow_berry).toBe(0);
+    // once the task is done, petting no longer uses up food
+    g.state.inventory.glow_berry = 1;
+    expect(g.wantsTreat('glowfox')).toBe(false);
+    g.interactCreature('glowfox');
+    expect(g.state.inventory.glow_berry).toBe(1);
   });
+
 });
 
 describe('login rewards', () => {
