@@ -59,6 +59,17 @@ describe('daily tasks', () => {
       expect(kinds).not.toContain('play'); // no bonded friend yet
     }
   });
+
+  it('does not ask to feed creatures once every creature is a bonded friend', () => {
+    const { g } = setup();
+    for (const c of Object.values(g.state.creatures)) c.state = 'bonded';
+    for (let i = 0; i < 40; i++) {
+      g.state.daily.date = '';
+      g.state.createdAt = new Date(2026, 0, i + 1).toISOString();
+      g.refreshDaily();
+      expect(g.state.daily.tasks.map((x) => x.kind)).not.toContain('feed');
+    }
+  });
 });
 
 describe('login rewards', () => {
