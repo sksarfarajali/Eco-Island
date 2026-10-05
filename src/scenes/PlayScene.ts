@@ -736,7 +736,9 @@ export abstract class PlayScene extends Phaser.Scene {
       cs.state === 'bonded'
         ? g.canEvolve(id)
           ? t('act.evolve', { name })
-          : t('act.pet', { name })
+          : g.wantsTreat(id)
+            ? t('act.treat', { name, icon: ITEMS[likes].icon })
+            : t('act.pet', { name })
         : t('act.feed', { name, icon: ITEMS[likes].icon });
     return {
       id: `creature_${id}`,
@@ -745,7 +747,7 @@ export abstract class PlayScene extends Phaser.Scene {
       label,
       enabled: true,
       act: () => {
-        const play = cs.state === 'bonded' && !g.canEvolve(id) ? this.playOffer(id) : null;
+        const play = cs.state === 'bonded' && !g.canEvolve(id) && !g.wantsTreat(id) ? this.playOffer(id) : null;
         if (play) {
           g.interactCreature(id, { x: sprite.x, y: sprite.y });
           this.hooks.dialog({

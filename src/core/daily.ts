@@ -18,8 +18,8 @@ export const DAILY_POOL: Record<DailyKind, DailyDef> = {
   berries: { target: 6, coins: 10, xp: 10 },
   fish: { target: 3, coins: 15, xp: 12 },
   plant: { target: 3, coins: 15, xp: 12 },
-  // only offered while some creature still needs feeding (bonded friends are petted, not fed)
-  feed: { target: 2, coins: 12, xp: 10, needs: (s) => Object.values(s.creatures).some((c) => c.state !== 'bonded') },
+  // bonded friends count too: they take a treat of their favourite food
+  feed: { target: 2, coins: 12, xp: 10 },
   enemies: { target: 3, coins: 20, xp: 15, needs: (s) => s.player.level >= 2 },
   cook: { target: 1, coins: 15, xp: 12 },
   photo: { target: 1, coins: 10, xp: 8 },

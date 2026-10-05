@@ -955,5 +955,7 @@
   "cosmetic.party_hat.icon": "🥳",
   "cosmetic.sun_hat.icon": "👒",
   "cosmetic.golden_crown.icon": "👑",
-  "login.first": "Welcome to Echo Island! Here's a little gift to start your adventure. Come back every day for more."
+  "login.first": "Welcome to Echo Island! Here's a little gift to start your adventure. Come back every day for more.",
+  "act.treat": "Give {name} a treat ({icon})",
+  "msg.treat": "{name} loves the treat! 💛"
 }
