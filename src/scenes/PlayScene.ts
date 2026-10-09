@@ -36,6 +36,7 @@ export interface SceneHooks {
   combat(active: boolean): void;
   bossBar(hp: number, max: number): void;
   openKitchen(): void;
+  openMerchant(): void;
   /** Mini-game status line (null hides it). */
   minigame(text: string | null): void;
 }

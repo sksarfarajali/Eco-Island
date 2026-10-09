@@ -31,5 +31,7 @@
   {"id": "first_festival", "when": "festivals >= 1", "then": ["cosmetic:party_hat", "toast:rule.first_festival"]},
   {"id": "island_6", "when": "island_level >= 6", "then": ["cosmetic:sun_hat", "toast:rule.island_6"]},
   {"id": "island_10", "when": "island_level >= 10", "then": ["cosmetic:golden_crown", "visual:island_paradise", "toast:rule.island_10"]},
-  {"id": "milestone_ocean", "when": "discoveries >= 35", "then": ["harmony:40", "toast:rule.milestone_ocean"]}
+  {"id": "milestone_ocean", "when": "discoveries >= 35", "then": ["harmony:40", "toast:rule.milestone_ocean"]},
+  {"id": "memories_whole", "when": "memories >= 12", "then": ["harmony:50", "cosmetic:memory_charm", "toast:rule.memories_whole"]},
+  {"id": "milestone_fifty", "when": "discoveries >= 50", "then": ["harmony:50", "toast:rule.milestone_fifty"]}
 ]

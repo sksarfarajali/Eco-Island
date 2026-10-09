@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { MAP_H, MAP_W, TILE, WORLD_H, WORLD_W } from '../core/config';
 import { isLakeWater, isLand } from '../core/layout';
-import { canvasTex, circle, ellipse, rrect, shade, type Ctx } from './art';
+import { SKIN, canvasTex, circle, drawPerson, ellipse, outlineTexture, rrect, shade, type Ctx } from './art';
 
 /**
  * Art for the newer systems: Coral Isle, cooking, decorations, festivals,
@@ -14,6 +14,91 @@ export function makeExtraTextures(scene: Phaser.Scene): void {
   makeVillage(scene);
   makeIsle(scene);
   makeWeather(scene);
+  makeSurprises(scene);
+}
+
+/** Surprise events and memory shards. */
+function makeSurprises(scene: Phaser.Scene): void {
+  canvasTex(scene, 'dig_spot', 34, 20, (ctx) => {
+    ellipse(ctx, 17, 13, 15, 6, '#8a5a32');
+    ellipse(ctx, 17, 12, 12, 4.5, '#a5743f');
+    ctx.strokeStyle = '#5a3a24';
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.moveTo(10, 12);
+    ctx.lineTo(24, 12);
+    ctx.moveTo(17, 7);
+    ctx.lineTo(17, 17);
+    ctx.stroke();
+    [[6, 4], [28, 5], [24, 2]].forEach(([x, y]) => circle(ctx, x, y, 1.6, '#fff6b0'));
+  });
+  canvasTex(scene, 'fallen_star', 30, 30, (ctx) => {
+    const g = ctx.createRadialGradient(15, 15, 1, 15, 15, 14);
+    g.addColorStop(0, 'rgba(255,250,210,0.95)');
+    g.addColorStop(1, 'rgba(255,216,74,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, 30, 30);
+    ctx.fillStyle = '#ffe27a';
+    ctx.beginPath();
+    for (let i = 0; i < 10; i++) {
+      const r = i % 2 ? 4 : 10;
+      const a = -Math.PI / 2 + (i * Math.PI) / 5;
+      ctx.lineTo(15 + Math.cos(a) * r, 15 + Math.sin(a) * r);
+    }
+    ctx.closePath();
+    ctx.fill();
+    circle(ctx, 13, 13, 1.5, '#ffffff');
+  });
+  canvasTex(scene, 'lost_item', 24, 22, (ctx) => {
+    rrect(ctx, 3, 7, 18, 13, 3, '#c88a52', '#6d4a24');
+    rrect(ctx, 6, 3, 12, 6, 3, '#a5743f');
+    rrect(ctx, 10.5, 7, 3, 13, 1, '#ff7aa8');
+    circle(ctx, 12, 12, 2.4, '#ffd84a');
+  });
+  canvasTex(scene, 'memory_shard', 22, 34, (ctx) => {
+    const glow = ctx.createRadialGradient(11, 18, 1, 11, 18, 11);
+    glow.addColorStop(0, 'rgba(200,170,255,0.8)');
+    glow.addColorStop(1, 'rgba(160,120,255,0)');
+    ctx.fillStyle = glow;
+    ctx.fillRect(0, 6, 22, 24);
+    const g = ctx.createLinearGradient(6, 4, 16, 30);
+    g.addColorStop(0, '#ffffff');
+    g.addColorStop(0.5, '#c9b3ff');
+    g.addColorStop(1, '#7b5fd6');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.moveTo(11, 2);
+    ctx.lineTo(17, 16);
+    ctx.lineTo(11, 31);
+    ctx.lineTo(5, 16);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+    ctx.lineWidth = 0.8;
+    ctx.beginPath();
+    ctx.moveTo(11, 3);
+    ctx.lineTo(11, 30);
+    ctx.stroke();
+  });
+  canvasTex(scene, 'merchant_cart', 64, 50, (ctx) => {
+    rrect(ctx, 4, 20, 50, 18, 3, '#b07a45', '#6d4a24');
+    [[12, 18, '#ff7aa8'], [24, 17, '#ffd84a'], [36, 18, '#7ad66a'], [46, 17, '#5aa8ff']].forEach(([x, y, c]) => circle(ctx, x as number, y as number, 4, c as string));
+    for (let i = 0; i < 5; i++) {
+      ctx.fillStyle = i % 2 ? '#fff8ea' : '#7b5fd6';
+      ctx.fillRect(4 + i * 10, 2, 10, 9);
+    }
+    rrect(ctx, 5, 9, 2, 12, 1, '#5a3a24');
+    rrect(ctx, 51, 9, 2, 12, 1, '#5a3a24');
+    circle(ctx, 16, 42, 7, '#5a3a24');
+    circle(ctx, 16, 42, 3, '#c88a52');
+    circle(ctx, 44, 42, 7, '#5a3a24');
+    circle(ctx, 44, 42, 3, '#c88a52');
+    rrect(ctx, 54, 26, 10, 3, 1, '#6d4a24');
+  });
+  canvasTex(scene, 'npc_kiko', 28, 40, (ctx) =>
+    drawPerson(ctx, { skin: SKIN[1], hair: '#f2c14e', outfit: '#7b5fd6', hat: 'wide', backpack: true }),
+  );
+  outlineTexture(scene, 'npc_kiko');
 }
 
 const eyes = (ctx: Ctx, pts: [number, number][], r = 1.4) =>

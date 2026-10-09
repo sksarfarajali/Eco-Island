@@ -185,7 +185,7 @@ describe('localization (PRD 23: all player-visible text in language files)', () 
     for (const c of Object.keys(CREATURES)) keys.push(`creature.${c}.bonded_line`);
     for (const st of ['unknown', 'observed', 'friendly', 'bonded']) keys.push(`cstate.${st}`);
     for (const m of ['happy', 'sad', 'excited']) keys.push(`mood.${m}`);
-    for (const p of ['journal', 'book', 'bag', 'build', 'shop', 'map', 'companion', 'settings', 'kitchen']) keys.push(`panel.${p}`);
+    for (const p of ['journal', 'book', 'bag', 'build', 'shop', 'map', 'companion', 'settings', 'kitchen', 'merchant']) keys.push(`panel.${p}`);
     for (const k of DAILY_KINDS) keys.push(`daily.${k}`);
     for (const a of ACHIEVEMENTS) keys.push(`badge.${a.id}`, `badge.${a.id}.desc`);
     for (const d of DECOR_ORDER) keys.push(`decor.${d}`, `decor.${d}.desc`);
@@ -194,6 +194,9 @@ describe('localization (PRD 23: all player-visible text in language files)', () 
     for (const w of ['rain', 'fog', 'snow']) keys.push(`pip.weather_${w}`, `pip.weather_start_${w}`);
     for (const m of ['seek', 'race']) keys.push(`play.offer_${m}`, `play.start_${m}`, `minigame.${m}_won`, `minigame.${m}_lost`, `minigame.${m}_prize`);
     for (const f of ['none', 'warm', 'dreamy', 'vintage', 'mono']) keys.push(`photo.filter_${f}`);
+    for (const k of ['treasure', 'star', 'lost', 'golden', 'gloom', 'merchant']) keys.push(`event.${k}`, `event.${k}_start`, `event.${k}_pip`);
+    for (const n of ['rocco', 'luna', 'zed', 'tilly']) keys.push(`event.lost_item.${n}`);
+    for (let i = 1; i <= 12; i++) keys.push(`memory.memory_${i}`);
     for (const r of DEFAULT_RULES) for (const e of r.then) if (e.startsWith('cosmetic:')) keys.push(`cosmetic.${e.slice(9)}.icon`);
     expect(keys.filter((k) => !hasKey(k))).toEqual([]);
   });

@@ -1,5 +1,5 @@
 import { MAP_H, MAP_W, TILE } from './config';
-import type { ZoneId } from './types';
+import type { AreaId, ZoneId } from './types';
 
 /**
  * Hand-placed island layout for the Phase 0 vertical slice.
@@ -165,6 +165,23 @@ export const POI = {
   snowkit: { x: px(40), y: px(16) },
   petalbee: { x: px(13), y: px(17) },
 } as const;
+
+/** Places where surprise events can appear (tiles, all on open ground around the island). */
+export const EVENT_SPOTS: readonly { x: number; y: number }[] = (
+  [[8, 33], [18, 34], [5, 23], [27, 11], [36, 8], [44, 4], [56, 15], [60, 20], [40, 21], [33, 37], [46, 40], [56, 39], [61, 25], [19, 40]] as const
+).map(([x, y]) => ({ x: px(x), y: px(y) }));
+
+/** Where the wandering merchant sets up shop. */
+export const MERCHANT_SPOT = { x: px(6.5), y: px(26) };
+
+/** The twelve memory shards: the island's lost memory, scattered across every area (tiles). */
+export const MEMORY_SHARDS: readonly { id: string; area: AreaId; tx: number; ty: number }[] = (
+  [
+    ['island', 4, 13], ['island', 29, 4], ['island', 61, 9], ['island', 30, 38], ['island', 13, 40],
+    ['caves', 12, 1], ['caves', 33, 9], ['temple', 17, 16], ['highlands', 36, 2], ['highlands', 34, 12],
+    ['grove', 20, 9], ['isle', 33, 5],
+  ] as const
+).map(([area, tx, ty], i) => ({ id: `memory_${i + 1}`, area, tx, ty }));
 
 /** Zone travel destinations for the map's fast travel. */
 export const ZONE_SPAWN: Record<'village' | 'forest' | 'lake', { x: number; y: number }> = {

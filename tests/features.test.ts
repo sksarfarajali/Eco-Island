@@ -1,23 +1,25 @@
 import { describe, expect, it } from 'vitest';
 import { ACHIEVEMENT_COINS } from '../src/core/achievements';
 import { maxHealth } from '../src/core/combat';
-import { BOAT_COST, GROW, ISLAND_HARMONY_LEVELS, LOGIN_REWARDS, MAX_GATHER_YIELD, MINUTES_PER_DAY, PLAYER_XP_LEVELS, SEASON_DAYS } from '../src/core/config';
+import { BOAT_COST, GROW, ISLAND_HARMONY_LEVELS, LOGIN_REWARDS, MAX_GATHER_YIELD, PLAYER_XP_LEVELS, SEASON_DAYS } from '../src/core/config';
 import { DAILY_BONUS, DAILY_COUNT, DAILY_POOL, dateKey, dayBefore } from '../src/core/daily';
 import { Game, levelFor } from '../src/core/game';
 import { processGrowth } from '../src/core/growth';
-import { DECOR_SLOTS, NODES } from '../src/core/layout';
+import { DECOR_SLOTS, MEMORY_SHARDS, NODES } from '../src/core/layout';
+import { AREAS, terrainSolid } from '../src/core/areas';
+import { isWalkableGround } from '../src/core/layout';
 import { SAVE_VERSION, migrateSave, newGameState } from '../src/core/state';
 import type { GameState } from '../src/core/types';
 
 /** A game whose calendar clock can be moved by the test. */
-function setup(rng = () => 0.9, state: GameState = newGameState()) {
+function setup(rng = () => 0.9, state: GameState = newGameState(undefined, new Date(2026, 9, 3, 9))) {
   const clock = { now: new Date(2026, 9, 3, 10) };
   const g = new Game(state, undefined, rng, () => clock.now);
   const nextDay = (days = 1) => (clock.now = new Date(clock.now.getFullYear(), clock.now.getMonth(), clock.now.getDate() + days, 10));
-  return { g, clock, nextDay };
+  /** Jump the calendar to island day `day` (day 1 = 3 Oct 2026, when the save was made). */
+  const goToDay = (day: number, hour = 10) => (clock.now = new Date(2026, 9, 2 + day, hour));
+  return { g, clock, nextDay, goToDay };
 }
-
-const goToDay = (g: Game, day: number, hour = 10) => (g.state.world.minutes = (day - 1) * MINUTES_PER_DAY + hour * 60);
 
 describe('daily tasks', () => {
   it('picks three tasks per calendar day, the same all day and new the next day', () => {
@@ -176,23 +178,23 @@ describe('badges', () => {
 
 describe('seasons, festivals and weather', () => {
   it('cycles through four seasons with a festival on the last day of each', () => {
-    const { g } = setup();
-    goToDay(g, 1);
+    const { g, goToDay } = setup();
+    goToDay(1);
     expect(g.season()).toBe('spring');
     expect(g.festivalToday()).toBeNull();
-    goToDay(g, SEASON_DAYS);
+    goToDay(SEASON_DAYS);
     expect(g.festivalToday()).toBe('spring');
-    goToDay(g, SEASON_DAYS + 1);
+    goToDay(SEASON_DAYS + 1);
     expect(g.season()).toBe('summer');
-    goToDay(g, SEASON_DAYS * 4 + 1);
+    goToDay(SEASON_DAYS * 4 + 1);
     expect(g.season()).toBe('spring');
   });
 
   it('a festival can be celebrated once and gives its decoration', () => {
-    const { g } = setup();
-    goToDay(g, 3);
+    const { g, goToDay } = setup();
+    goToDay(3);
     expect(g.celebrateFestival().ok).toBe(false);
-    goToDay(g, SEASON_DAYS * 2);
+    goToDay(SEASON_DAYS * 2);
     expect(g.celebrateFestival().ok).toBe(true);
     expect(g.state.world.decorOwned.paper_lantern).toBe(1);
     expect(g.celebrateFestival().ok).toBe(false);
@@ -321,5 +323,95 @@ describe('save migration v3 → v4', () => {
     expect(s.stats.photos).toBe(0);
     const { g } = setup(() => 0.9, s);
     expect(g.refreshDaily()).toBe(true);
+  });
+});
+
+describe('surprise events', () => {
+  it('a new event starts after a few minutes of play on the island, and fades if ignored', () => {
+    const { g } = setup(() => 0.1);
+    g.state.world.nextEventIn = 5;
+    g.tick(6);
+    expect(g.state.world.event).not.toBeNull();
+    g.tick(1000);
+    expect(g.state.world.event).toBeNull();
+    expect(g.state.world.nextEventIn).toBeGreaterThan(0);
+  });
+
+  it('events do not start while Nova is away from the main island', () => {
+    const { g } = setup();
+    g.state.player.position.area = 'caves';
+    g.state.world.nextEventIn = 1;
+    g.tick(10);
+    expect(g.state.world.event).toBeNull();
+  });
+
+  it('treasure, stars and golden butterflies give rewards and count as events', () => {
+    const { g } = setup(() => 0.5);
+    for (const [kind, act] of [['treasure', () => g.digTreasure()], ['star', () => g.catchStar()], ['golden', () => g.catchGolden()]] as const) {
+      const coins = g.state.player.coins;
+      g.startEvent(kind);
+      expect(act().ok).toBe(true);
+      expect(g.state.world.event).toBeNull();
+      expect(g.state.player.coins + g.state.inventory.crystal).toBeGreaterThan(coins);
+    }
+    expect(g.state.stats.eventsDone).toBe(3);
+  });
+
+  it('a lost item is found, then returned to its owner by talking to them', () => {
+    const { g } = setup(() => 0);
+    const ev = g.startEvent('lost');
+    const npc = ev.npc!;
+    expect(g.pickLost().ok).toBe(true);
+    const coins = g.state.player.coins;
+    const d = g.talk(npc);
+    expect(d.lines.join(' ')).toContain('Thank you');
+    expect(g.state.player.coins).toBe(coins + 30);
+    expect(g.state.world.event).toBeNull();
+  });
+
+  it('a gloom outbreak ends when all its gloomlings are calmed', () => {
+    const { g } = setup();
+    const ev = g.startEvent('gloom');
+    const size = ev.count!;
+    for (let i = 0; i < size; i++) g.outbreakCalmed();
+    expect(g.state.world.event).toBeNull();
+    expect(g.state.inventory.essence).toBe(3);
+  });
+
+  it('the merchant sells three offers, each once', () => {
+    const { g } = setup();
+    g.startEvent('merchant');
+    g.state.player.coins = 500;
+    expect(g.merchantOffers()).toHaveLength(3);
+    expect(g.buyOffer(0).ok).toBe(true);
+    expect(g.buyOffer(0).ok).toBe(false);
+  });
+
+  it('every event spot is open ground', () => {
+    const { g } = setup();
+    for (let i = 0; i < 30; i++) {
+      const ev = g.startEvent();
+      expect(isWalkableGround(ev.x, ev.y)).toBe(true);
+    }
+  });
+});
+
+describe('memory shards', () => {
+  it('twelve shards lie on open ground across every area', () => {
+    expect(MEMORY_SHARDS).toHaveLength(12);
+    for (const m of MEMORY_SHARDS) {
+      if (m.area === 'island') expect(isWalkableGround(m.tx * 32 + 16, m.ty * 32 + 16)).toBe(true);
+      else expect(terrainSolid(AREAS[m.area], m.tx, m.ty)).toBe(false);
+    }
+  });
+
+  it('each shard tells part of the story once; all twelve give the memory charm', () => {
+    const { g } = setup();
+    expect(g.collectMemory('memory_1')?.lines.length).toBeGreaterThan(1);
+    expect(g.collectMemory('memory_1')).toBeNull();
+    for (const m of MEMORY_SHARDS) g.collectMemory(m.id);
+    expect(g.state.discoveries.memories).toHaveLength(12);
+    expect(g.state.player.cosmetics).toContain('memory_charm');
+    expect(g.state.achievements).toContain('memory_keeper');
   });
 });

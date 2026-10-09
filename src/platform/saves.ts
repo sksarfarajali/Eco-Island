@@ -1,3 +1,4 @@
+import { calendarDay } from '../core/daily';
 import { migrateSave, validateSave } from '../core/state';
 import type { GameState } from '../core/types';
 
@@ -87,7 +88,7 @@ export class SaveStore {
       .map((r) => ({
         key: r.key,
         savedAt: r.savedAt,
-        day: Math.floor((r.data.world?.minutes ?? 0) / 1440) + 1,
+        day: calendarDay(r.data.createdAt ?? '', new Date()),
         islandLevel: r.data.island?.level ?? 1,
       }))
       .sort((a, b) => b.savedAt.localeCompare(a.savedAt));
@@ -126,7 +127,7 @@ export class SaveStore {
     const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = `echo-island-save-day${Math.floor(state.world.minutes / 1440) + 1}.json`;
+    a.download = `echo-island-save-day${calendarDay(state.createdAt, new Date())}.json`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   }

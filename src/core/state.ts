@@ -5,7 +5,7 @@ import { CREATURE_ORDER, QUEST_ORDER, QUESTS } from './content';
 import { DECOR_SLOTS, NODES, PLOTS, POI } from './layout';
 import type { Appearance, GameState, NodeState, QuestId, QuestStatus, TempleState } from './types';
 
-export const SAVE_VERSION = 4;
+export const SAVE_VERSION = 5;
 
 /** Resource nodes in the other areas use ids like `caves:c3`. */
 const AREA_NODE_CHARS = 'crfkqj';
@@ -88,6 +88,9 @@ export function newGameState(appearance: Appearance = { skin: 0, hair: 0, outfit
       decorOwned: {},
       decorSeen: [],
       boatRepaired: false,
+      lastNap: null,
+      event: null,
+      nextEventIn: 90,
       reefHealed: [],
       minigames: { seekWins: 0, raceWins: 0, rewardDay: {} },
     },
@@ -97,6 +100,7 @@ export function newGameState(appearance: Appearance = { skin: 0, hair: 0, outfit
       wood: 0, stone: 0, crystal: 0, glow_berry: 0, veggie: 0, seed: 1, essence: 0, purifier: 0,
       minnow: 0, moonfish: 0, echo_koi: 0, tonic: 0, coral: 0, shell: 0, coconut: 0,
       berry_pie: 0, fish_stew: 0, garden_salad: 0, coconut_curry: 0,
+      sunfish: 0, snowtrout: 0, rainbow_carp: 0, night_eel: 0, coral_snapper: 0, blossom_guppy: 0, maple_perch: 0,
     },
     buildings: { house: 0, garden: 0, workshop: 0, sanctuary: 0, arch: 0 },
     creatures: Object.fromEntries(
@@ -121,8 +125,8 @@ export function newGameState(appearance: Appearance = { skin: 0, hair: 0, outfit
     },
     quests,
     choices: [],
-    discoveries: { creatures: [], plants: [], relics: [], places: [] },
-    stats: { sessions: 0, playSeconds: 0, questsDone: 0, worldChanges: 0, errors: 0, defeats: 0, mealsCooked: 0, photos: 0, weatherSeen: [] },
+    discoveries: { creatures: [], plants: [], relics: [], places: [], fish: [], memories: [] },
+    stats: { sessions: 0, playSeconds: 0, questsDone: 0, worldChanges: 0, errors: 0, defeats: 0, mealsCooked: 0, photos: 0, weatherSeen: [], eventsDone: 0 },
   };
 }
 

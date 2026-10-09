@@ -85,7 +85,7 @@ export const rrect = (ctx: Ctx, x: number, y: number, w: number, h: number, r: n
   }
 };
 
-interface PersonLook {
+export interface PersonLook {
   skin: string;
   hair: string;
   outfit: string;
@@ -277,6 +277,19 @@ function drawNova(scene: Phaser.Scene, key: string, a: Appearance, cosmetics: st
     }
     drawPerson(ctx, novaLook(a), step);
     if (cosmetics.includes('friend_scarf')) rrect(ctx, 7, 17, 14, 4, 2, '#ff7aa8');
+    if (cosmetics.includes('memory_charm')) {
+      const g = ctx.createRadialGradient(14, 23, 0.5, 14, 23, 3.5);
+      g.addColorStop(0, '#ffffff');
+      g.addColorStop(1, '#9f7bff');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.moveTo(14, 19.5);
+      ctx.lineTo(16.6, 23);
+      ctx.lineTo(14, 26.5);
+      ctx.lineTo(11.4, 23);
+      ctx.closePath();
+      ctx.fill();
+    }
     // only one hat at a time: the grandest one earned
     if (cosmetics.includes('golden_crown')) {
       ctx.fillStyle = '#ffd84a';

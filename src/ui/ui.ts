@@ -84,7 +84,7 @@ export interface UIActions {
   claimLogin(): void;
 }
 
-type PanelId = 'journal' | 'book' | 'bag' | 'build' | 'shop' | 'map' | 'companion' | 'settings' | 'workshop' | 'kitchen';
+type PanelId = 'journal' | 'book' | 'bag' | 'build' | 'shop' | 'map' | 'companion' | 'settings' | 'workshop' | 'kitchen' | 'merchant';
 
 const WEATHER_ICONS: Record<string, string> = { clear: '', rain: ' 🌧️', fog: ' 🌫️', snow: ' 🌨️' };
 
@@ -461,7 +461,9 @@ export class UI {
     if (this.hudZone.textContent !== zone) this.hudZone.textContent = zone;
     if (this.hudClock!.textContent !== clock) this.hudClock!.textContent = clock;
     const buffs = (Object.entries(s.player.buffs) as [BuffId, number][]).filter(([, sec]) => sec > 0);
+    const eventLine = g.eventLabel();
     const body = h('div', {},
+      eventLine ? h('div', { class: 'event-line', title: t('hud.event') }, eventLine) : null,
       buffs.length
         ? h('div', { class: 'buffs', title: t('hud.buffs') }, buffs.map(([id, sec]) => h('span', { class: 'buff' }, `${BUFF_ICONS[id]} ${Math.ceil(sec / 60)}m`)))
         : null,
@@ -768,6 +770,7 @@ export class UI {
       case 'settings': return this.settingsPanel();
       case 'workshop': return this.workshop();
       case 'kitchen': return this.kitchen();
+      case 'merchant': return this.merchant();
     }
   }
 
@@ -884,7 +887,8 @@ export class UI {
     const s = g.state;
     const groups: [string, ItemId[]][] = [
       ['bag.resources', ['wood', 'stone', 'crystal', 'essence', 'coral', 'shell']],
-      ['bag.food', ['glow_berry', 'veggie', 'coconut', 'minnow', 'moonfish', 'echo_koi', 'tonic']],
+      ['bag.food', ['glow_berry', 'veggie', 'coconut', 'tonic']],
+      ['bag.fish', ['minnow', 'moonfish', 'echo_koi', 'blossom_guppy', 'sunfish', 'maple_perch', 'snowtrout', 'rainbow_carp', 'night_eel', 'coral_snapper']],
       ['bag.meals', MEAL_ORDER],
       ['bag.special', ['seed', 'purifier']],
     ];
@@ -1086,6 +1090,17 @@ export class UI {
         ctx.stroke();
       }
     }
+    // the running surprise event
+    const ev = s.world.event;
+    if (ev && !(ev.kind === 'lost' && ev.stage === 'return')) {
+      ctx.fillStyle = '#ffd84a';
+      ctx.strokeStyle = '#2b2135';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc((ev.x / 32) * sx, (ev.y / 32) * sy, 5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
     const p = s.player.position;
     ctx.fillStyle = '#ffffff';
     ctx.strokeStyle = '#2b2135';
@@ -1163,6 +1178,31 @@ export class UI {
       );
     });
     return h('div', {}, h('p', { class: 'muted' }, t('workshop.intro')), h('div', { class: 'cards' }, rows));
+  }
+
+  /** The wandering merchant's cart: three special offers per visit. */
+  private merchant(): HTMLElement {
+    const g = this.game!;
+    const s = g.state;
+    const ev = s.world.event;
+    const offers = g.merchantOffers();
+    if (!offers.length) return h('p', { class: 'muted' }, t('event.merchant_gone'));
+    const cards = offers.map((o, i) => {
+      const sold = ev?.bought?.includes(i);
+      const what = o.decor
+        ? `${DECOR[o.decor].icon} ${t(`decor.${o.decor}`)}`
+        : (Object.entries(o.give ?? {}) as [ItemId, number][]).map(([item, n]) => `${n} ${ITEMS[item].icon} ${g.itemName(item)}`).join(', ');
+      return h('div', { class: 'card' },
+        h('div', { class: 'card-icon', 'aria-hidden': 'true' }, o.decor ? DECOR[o.decor].icon : ITEMS[Object.keys(o.give!)[0] as ItemId].icon),
+        h('strong', {}, what),
+        o.decor ? h('p', {}, t('event.merchant_rare')) : null,
+        h('button', { class: 'btn primary', disabled: sold || s.player.coins < o.price, onclick: () => this.info(g.buyOffer(i).message ?? '') },
+          sold ? t('event.merchant_sold') : t('decor.buy', { n: o.price })));
+    });
+    return h('div', {},
+      h('p', {}, t('event.merchant_hello')),
+      h('p', { class: 'coins-line' }, `🪙 ${t('bag.coins', { n: s.player.coins })}`),
+      h('div', { class: 'cards' }, cards));
   }
 
   /** The village cooking pot: meals heal and give a timed boost. */

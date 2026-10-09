@@ -40,6 +40,7 @@ export function computeMetrics(s: GameState): Metrics {
     boat_repaired: s.world.boatRepaired ? 1 : 0,
     reef_healed: s.world.reefHealed.length,
     festivals: s.world.festivals.length,
+    memories: s.discoveries.memories.length,
   };
 }
 

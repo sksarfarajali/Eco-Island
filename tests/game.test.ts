@@ -196,20 +196,42 @@ describe('world changes (PRD: at least five visible changes in the slice)', () =
 });
 
 describe('time', () => {
-  it('sleeping in a house skips to the next morning', () => {
-    const g = newGame();
-    expect(g.sleep().ok).toBe(false);
-    g.state.buildings.house = 1;
-    const day = g.day;
-    expect(g.sleep().ok).toBe(true);
-    expect(g.day).toBe(day + 1);
-    expect(g.hour).toBe(6);
+  it('the day and clock follow the real calendar, however much is played', () => {
+    const clock = { now: new Date(2026, 9, 3, 14, 35) };
+    const g = new Game(newGameState(undefined, new Date(2026, 9, 3, 9)), undefined, () => 0, () => clock.now);
+    expect(g.day).toBe(1);
+    expect(g.timeLabel()).toBe('14:35');
+    g.tick(3600); // an hour of play does not change the day
+    expect(g.day).toBe(1);
+    clock.now = new Date(2026, 9, 10, 8);
+    expect(g.day).toBe(8);
+    clock.now = new Date(2026, 10, 3, 8);
+    expect(g.day).toBe(32);
   });
 
-  it('darkness is zero by day and full at midnight', () => {
-    const g = newGame();
+  it('a nap restores hearts and grows plants at most every half hour', () => {
+    const clock = { now: new Date(2026, 9, 3, 14) };
+    const g = new Game(newGameState(undefined, new Date(2026, 9, 3, 9)), undefined, () => 0, () => clock.now);
+    expect(g.sleep().ok).toBe(false);
+    g.state.buildings.house = 1;
+    g.state.player.health = 1;
+    const grow = g.state.world.minutes;
+    expect(g.sleep().ok).toBe(true);
+    expect(g.state.player.health).toBe(g.maxHealth());
+    expect(g.state.world.minutes).toBeGreaterThan(grow);
+    const after = g.state.world.minutes;
+    g.sleep();
+    expect(g.state.world.minutes).toBe(after);
+    clock.now = new Date(2026, 9, 3, 14, 31);
+    g.sleep();
+    expect(g.state.world.minutes).toBeGreaterThan(after);
+  });
+
+  it('darkness follows the real time of day', () => {
+    const clock = { now: new Date(2026, 9, 3, 12) };
+    const g = new Game(newGameState(), undefined, () => 0, () => clock.now);
     expect(g.darkness()).toBe(0);
-    g.state.world.minutes = 24 * 60;
+    clock.now = new Date(2026, 9, 3, 23, 30);
     expect(g.darkness()).toBe(1);
   });
 });

@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { Game } from './core/game';
+import { calendarDay } from './core/daily';
 import { applyTimeAway } from './core/growth';
 import { setLanguage, t } from './core/i18n';
 import { newGameState } from './core/state';
@@ -112,7 +113,7 @@ export class App {
     this.startWorld('menu', 'island', 'spawn');
     this.ui.hideHud();
     this.ui.showMenu({
-      save: this.saved ? { day: Math.floor(this.saved.world.minutes / 1440) + 1, islandLevel: this.saved.island.level } : null,
+      save: this.saved ? { day: calendarDay(this.saved.createdAt, new Date()), islandLevel: this.saved.island.level } : null,
       notice,
       onRestore: () => void this.ui.showRestore(() => undefined),
     });
@@ -317,6 +318,7 @@ export class App {
         this.ui.setBossBar(hp, max);
       },
       openKitchen: () => this.ui.openPanel('kitchen'),
+      openMerchant: () => this.ui.openPanel('merchant'),
       minigame: (text) => this.ui.setMinigame(text),
     };
   }

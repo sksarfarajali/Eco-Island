@@ -2,12 +2,12 @@ import Phaser from 'phaser';
 import { BOAT_COST, RACE_SECONDS, SEEK_SECONDS, TILE, WORLD_H, WORLD_W } from '../core/config';
 import { CREATURES, DECOR, ITEMS } from '../core/content';
 import { t } from '../core/i18n';
-import { DECOR_SLOTS, DOCK, LAKE, NODES, NODE_BY_ID, PLOTS, POI, STATIC_BLOCKERS, isWalkableGround, px, zoneAt } from '../core/layout';
+import { DECOR_SLOTS, DOCK, LAKE, MEMORY_SHARDS, NODES, NODE_BY_ID, PLOTS, POI, STATIC_BLOCKERS, isWalkableGround, px, zoneAt } from '../core/layout';
 import type { BuildingId, CreatureId, DecorId, ItemId, MinigameKind, NpcId, ZoneId } from '../core/types';
 import { RES } from './art';
 import { makeSeasonOverlays } from './art3';
 import { decorFree, makeGround, seeded } from './ground';
-import { PlayScene, WORLD_FONT, img, nameTag, type Blocker, type Interactable } from './PlayScene';
+import { PlayScene, WORLD_FONT, img, nameTag, type Blocker, type Enemy, type Interactable } from './PlayScene';
 
 /** A running mini-game on the island. */
 interface Minigame {
@@ -96,7 +96,13 @@ export class IslandScene extends PlayScene {
     this.decorMode = null;
     this.skyLanterns = [];
     this.game_mini = null;
+    this.eventView = null;
+    this.shardViews.clear();
   }
+
+  /** Sprites of the running surprise event. */
+  private eventView: { id: number; parts: Phaser.GameObjects.GameObject[]; main: Phaser.GameObjects.Image; outbreak: boolean } | null = null;
+  private shardViews = new Map<string, Phaser.GameObjects.Image>();
 
   protected worldSize() {
     return { w: WORLD_W, h: WORLD_H };
@@ -168,6 +174,11 @@ export class IslandScene extends PlayScene {
     this.seasonAutumn = this.add.image(0, 0, 'season_autumn').setOrigin(0).setDepth(-9500).setAlpha(0.38).setVisible(false);
     this.createStatic();
     this.createDecor();
+    for (const m of MEMORY_SHARDS.filter((x) => x.area === 'island')) {
+      const sprite = img(this, px(m.tx), px(m.ty) + 12, 'memory_shard').setDepth(px(m.ty) + 12);
+      if (!this.settings.reducedMotion) this.tweens.add({ targets: sprite, y: sprite.y - 5, duration: 1300, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
+      this.shardViews.set(m.id, sprite);
+    }
     this.createNodes();
     this.createPlots();
     this.createNpcs();
@@ -652,7 +663,84 @@ export class IslandScene extends PlayScene {
       v.spot.setVisible(this.decorMode !== null && open && !placed);
     }
 
+    for (const [id, sprite] of this.shardViews) sprite.setVisible(!st.discoveries.memories.includes(id));
+    this.syncEvent(blockers);
     this.blockers = blockers;
+  }
+
+  // ------------------------------------------------------------------ surprise events
+
+  private syncEvent(blockers: Blocker[]): void {
+    const ev = this.game_.state.world.event;
+    const view = this.eventView;
+    if (view && (!ev || ev.id !== view.id)) {
+      view.parts.forEach((p) => p.destroy());
+      // an outbreak that faded away takes its gloomlings with it
+      for (const e of this.enemies.filter((x) => x.tag === 'outbreak')) {
+        e.sprite.destroy();
+        e.warn.destroy();
+      }
+      this.enemies = this.enemies.filter((x) => x.tag !== 'outbreak');
+      this.eventView = null;
+    }
+    if (!ev) return;
+    if (ev.kind === 'lost' && ev.stage === 'return' && this.eventView) {
+      this.eventView.parts.forEach((p) => (p as Phaser.GameObjects.Image).setVisible(false));
+      return;
+    }
+    if (ev.kind === 'merchant') blockers.push({ kind: 'rect', x: ev.x + 30, y: ev.y, w: 60, h: 22 });
+    if (this.eventView) return;
+    const parts: Phaser.GameObjects.GameObject[] = [];
+    const beam = img(this, ev.x, ev.y, 'glow', 0.5).setScale(1.6 / RES).setTint(0xfff6b0).setAlpha(0.5).setDepth(ev.y - 2);
+    parts.push(beam);
+    if (!this.settings.reducedMotion) this.tweens.add({ targets: beam, alpha: 0.2, duration: 900, yoyo: true, repeat: -1 });
+    let main: Phaser.GameObjects.Image;
+    switch (ev.kind) {
+      case 'treasure':
+        main = img(this, ev.x, ev.y + 8, 'dig_spot').setDepth(ev.y - 1);
+        break;
+      case 'star':
+        main = img(this, ev.x, ev.y + 10, 'fallen_star').setDepth(ev.y + 10);
+        break;
+      case 'lost':
+        main = img(this, ev.x, ev.y + 8, 'lost_item').setDepth(ev.y + 8);
+        break;
+      case 'golden':
+        main = img(this, ev.x, ev.y - 10, 'butterfly', 0.5).setScale(2 / RES).setTint(0xffd84a).setDepth(9000);
+        if (!this.settings.reducedMotion) {
+          this.tweens.add({ targets: main, x: ev.x + 60, duration: 2600, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
+          this.tweens.add({ targets: main, y: ev.y - 40, duration: 1700, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
+        }
+        break;
+      case 'merchant': {
+        parts.push(img(this, ev.x + 30, ev.y + 14, 'merchant_cart').setDepth(ev.y + 14));
+        main = img(this, ev.x - 14, ev.y + 10, 'npc_kiko').setDepth(ev.y + 10);
+        this.breathe(main);
+        break;
+      }
+      default:
+        main = img(this, ev.x, ev.y, 'spark', 0.5).setVisible(false);
+    }
+    parts.push(main);
+    if (ev.kind !== 'golden' && ev.kind !== 'gloom') {
+      const marker = img(this, ev.x, ev.y - 30, 'marker_quest').setDepth(9500);
+      if (!this.settings.reducedMotion) this.tweens.add({ targets: marker, y: '-=4', duration: 600, yoyo: true, repeat: -1 });
+      parts.push(marker);
+    }
+    this.eventView = { id: ev.id, parts, main, outbreak: false };
+    // a gloom outbreak brings a few gloomlings to the island
+    if (ev.kind === 'gloom' && this.mode === 'play') {
+      for (let i = 0; i < (ev.count ?? 0); i++) {
+        const a = (i / Math.max(1, ev.count ?? 1)) * Math.PI * 2;
+        const x = ev.x + Math.cos(a) * 40;
+        const y = ev.y + Math.sin(a) * 30;
+        this.spawnEnemy('gloomling', isWalkableGround(x, y) ? x : ev.x, isWalkableGround(x, y) ? y : ev.y, 'outbreak');
+      }
+    }
+  }
+
+  protected onEnemyKilled(e: Enemy): void {
+    if (e.tag === 'outbreak') this.game_.outbreakCalmed();
   }
 
   private npcPositions(): Record<NpcId, { x: number; y: number }> {
@@ -681,6 +769,26 @@ export class IslandScene extends PlayScene {
         list.push({ id: `decor_${d.id}`, x: d.x, y: d.y, label, enabled: !!placed || this.decorMode !== 'arrange', act: () => this.decorSlotAction(d.id) });
       }
       return;
+    }
+    // surprise event and memory shards
+    const ev = st.world.event;
+    if (ev && this.eventView) {
+      const at = { x: this.eventView.main.x, y: ev.kind === 'golden' ? this.eventView.main.y + 20 : ev.y };
+      const add = (label: string, act: () => void) => list.push({ id: `event_${ev.id}`, ...at, label, enabled: true, act });
+      if (ev.kind === 'treasure') add(t('event.act_treasure'), () => this.report(g.digTreasure()));
+      if (ev.kind === 'star') add(t('event.act_star'), () => this.report(g.catchStar()));
+      if (ev.kind === 'golden') add(t('event.act_golden'), () => this.report(g.catchGolden()));
+      if (ev.kind === 'lost' && ev.stage === 'find') add(t('event.act_lost', { item: t(`event.lost_item.${ev.npc}`) }), () => this.report(g.pickLost()));
+      if (ev.kind === 'merchant') add(t('event.act_merchant'), () => this.hooks.openMerchant());
+    }
+    for (const [id, sprite] of this.shardViews) {
+      if (sprite.visible) list.push({ id, x: sprite.x, y: sprite.y - 8, label: t('act.memory'), enabled: true, act: () => {
+        const d = g.collectMemory(id);
+        if (d) {
+          this.burst(sprite.x, sprite.y - 16, 0xc9b3ff, 16);
+          this.hooks.dialog(d);
+        }
+      } });
     }
     // hide-and-seek: the marked bushes and trees can be searched
     const seek = this.game_mini?.kind === 'seek' ? this.game_mini : null;
@@ -815,6 +923,9 @@ export class IslandScene extends PlayScene {
     if (st.quests.q_highlands.status === 'active' || st.quests.q_finale.status === 'active') out.push(POI.highlandsPath);
     if (st.quests.q_voyage.status === 'active' || (st.world.boatRepaired && !st.discoveries.places.includes('coral_isle'))) out.push(POI.boat);
     if (this.game_.festivalToday() && !st.world.festivals.includes(this.game_.festivalId())) out.push(POI.festival);
+    const ev = st.world.event;
+    if (ev?.kind === 'lost' && ev.stage === 'return' && ev.npc) out.push(this.npcPositions()[ev.npc]);
+    else if (ev && this.eventView) out.push({ x: this.eventView.main.x, y: this.eventView.main.y });
     const mini = this.game_mini;
     // in the last 20 seconds of hide-and-seek, Pip's Sense gives the game away
     if (mini?.kind === 'seek' && mini.hidden && mini.endsAt - this.time.now < 20000) return [NODE_BY_ID[mini.hidden]];
@@ -827,6 +938,8 @@ export class IslandScene extends PlayScene {
 
   protected worldLights(light: (x: number, y: number, r: number) => void): void {
     const st = this.game_.state;
+    if (this.eventView) light(this.eventView.main.x, this.eventView.main.y, 70);
+    for (const s of this.shardViews.values()) if (s.visible) light(s.x, s.y - 14, 45);
     if (st.island.level >= 3 || this.game_.festivalToday()) for (const o of this.decor.lanterns) light((o as Phaser.GameObjects.Image).x, (o as Phaser.GameObjects.Image).y - 18, 70);
     for (const n of NODES) if (n.kind === 'grove' && st.world.nodes[n.id].stage === 'tree') light(n.x, n.y - 20, 50);
     if (st.island.visuals.includes('forest_ancient')) light(px(59.5), px(21) - 60, 160);

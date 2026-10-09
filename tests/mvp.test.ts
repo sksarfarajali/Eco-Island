@@ -208,10 +208,22 @@ describe('Highlands rescue (branching choice)', () => {
 
 describe('fishing, crafting and evolution', () => {
   it('catches minnows in a dim lake and moonfish once it is restored', () => {
-    const g = newGame(() => 0.3);
+    // first roll picks the fish, second decides whether a special seasonal fish bites (0.9 = no)
+    let i = 0;
+    const g = newGame(() => [0.3, 0.9][i++ % 2]);
     expect(g.catchFish()).toBe('minnow');
     g.state.island.lakeRestored = true;
     expect(g.catchFish()).toBe('moonfish');
+  });
+
+  it('special fish bite in the right season, weather and time, and fill the fish collection', () => {
+    let i = 0;
+    const g = new Game(newGameState(), undefined, () => [0.3, 0.1, 0][i++ % 3], () => new Date(2026, 9, 3, 12));
+    expect(g.season()).toBe('spring');
+    expect(g.catchFish()).toBe('blossom_guppy');
+    g.state.world.weather = { kind: 'rain', until: 1e9 };
+    expect(g.specialFish()).toContain('rainbow_carp');
+    expect(g.state.discoveries.fish).toContain('blossom_guppy');
   });
 
   it('over-fishing darkens the lake; a purifier cleanses it', () => {
