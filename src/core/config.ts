@@ -5,11 +5,18 @@ export const MAP_H = 44;
 export const WORLD_W = MAP_W * TILE;
 export const WORLD_H = MAP_H * TILE;
 
-/** In-game minutes that pass per real second (a full day lasts 12 real minutes). */
+/**
+ * The island's day and clock follow the real calendar and the player's local time.
+ * Plants, gardens and weather run on a faster "growth clock": this many growth minutes pass per real second.
+ */
 export const MINUTES_PER_SECOND = 2;
 export const MINUTES_PER_DAY = 24 * 60;
 /** The game starts at 08:00 on day 1. */
 export const START_MINUTES = 8 * 60;
+
+/** Napping at home: growth minutes that pass, and real minutes between growth naps. */
+export const NAP_GROWTH_MINUTES = 240;
+export const NAP_COOLDOWN_MINUTES = 30;
 
 /** Real time away is capped at 24 hours (PRD 13.5). */
 export const AWAY_CAP_SECONDS = 24 * 60 * 60;

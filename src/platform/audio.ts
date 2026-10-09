@@ -241,6 +241,14 @@ export class Audio {
         [1319, 1568, 1976, 2637].forEach((f, i) => this.tone(f, t + i * 0.07, 0.4, 'sine', 0.22, o));
         this.tone(659, t, 0.5, 'triangle', 0.3, o);
         break;
+      case 'event':
+        [784, 988, 1175, 1568].forEach((f, i) => this.tone(f, t + i * 0.09, 0.45, 'triangle', 0.22, o));
+        this.hiss(t + 0.2, 0.5, 'highpass', 7000, 0.06, o);
+        break;
+      case 'dig':
+        for (let i = 0; i < 3; i++) this.hiss(t + i * 0.12, 0.09, 'bandpass', 500, 0.6, o, 250, 2);
+        seq([523, 784], 0.12, 'triangle', 0.3, 3);
+        break;
       case 'whistle': this.tone(1800, t, 0.18, 'sine', 0.3, o, 2300); this.tone(1800, t + 0.25, 0.35, 'sine', 0.3, o, 2400); break;
       case 'giggle': seq([1568, 1760, 1568, 1976], 0.06, 'triangle', 0.25, 1.1); break;
       case 'boat':

@@ -30,6 +30,13 @@ export const ITEMS: Record<ItemId, ItemDef> = {
   coral: { icon: '🪸', sell: 5, common: true },
   shell: { icon: '🐚', sell: 3, common: true },
   coconut: { icon: '🥥', sell: 2, common: true, heal: 1 },
+  sunfish: { icon: '🐡', sell: 9, common: true, heal: 2 },
+  snowtrout: { icon: '🐟', sell: 9, common: true, heal: 2 },
+  rainbow_carp: { icon: '🌈', sell: 14, common: true, heal: 2 },
+  night_eel: { icon: '🪱', sell: 11, common: true, heal: 2 },
+  coral_snapper: { icon: '🐠', sell: 10, common: true, heal: 2 },
+  blossom_guppy: { icon: '🌸', sell: 8, common: true, heal: 1 },
+  maple_perch: { icon: '🍁', sell: 8, common: true, heal: 2 },
   berry_pie: { icon: '🥧', sell: 8, common: false, heal: 1, buff: { id: 'swift', seconds: 180 } },
   fish_stew: { icon: '🍲', sell: 10, common: false, heal: 3, buff: { id: 'hearty', seconds: 240 } },
   garden_salad: { icon: '🥗', sell: 8, common: false, heal: 1, buff: { id: 'lucky', seconds: 180 } },
@@ -50,6 +57,7 @@ export const BUFF_ICONS: Record<BuffId, string> = { swift: '💨', hearty: '❤�
 
 export const ITEM_ORDER: ItemId[] = [
   'wood', 'stone', 'crystal', 'essence', 'coral', 'shell', 'glow_berry', 'veggie', 'coconut', 'minnow', 'moonfish', 'echo_koi', 'tonic',
+  'sunfish', 'snowtrout', 'rainbow_carp', 'night_eel', 'coral_snapper', 'blossom_guppy', 'maple_perch',
   'berry_pie', 'fish_stew', 'garden_salad', 'coconut_curry', 'seed', 'purifier',
 ];
 
@@ -124,10 +132,12 @@ export const DISCOVERY_CATALOG: Record<DiscoveryCategory, string[]> = {
     'whisper_village', 'emerald_forest', 'moonlit_lake', 'memory_grove', 'temple_gate',
     'crystal_caves', 'ancient_temple', 'highlands', 'highland_view', 'shadow_grove', 'coral_isle',
   ],
+  fish: ['minnow', 'moonfish', 'echo_koi', 'blossom_guppy', 'sunfish', 'maple_perch', 'snowtrout', 'rainbow_carp', 'night_eel', 'coral_snapper'],
+  memories: Array.from({ length: 12 }, (_, i) => `memory_${i + 1}`),
 };
 
 /** Discovery Book milestones (total discoveries). Rewards are applied by world rules. */
-export const DISCOVERY_MILESTONES = [3, 8, 15, 25, 35];
+export const DISCOVERY_MILESTONES = [3, 8, 15, 25, 35, 50];
 
 export type QuestObjective =
   | { type: 'gather'; item: ItemId; count: number }

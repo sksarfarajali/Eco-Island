@@ -33,6 +33,9 @@ export const ACHIEVEMENTS: AchievementDef[] = [
   { id: 'storm_chaser', icon: '🌦️', check: (s) => ['rain', 'fog', 'snow'].every((w) => s.stats.weatherSeen.includes(w as never)) },
   { id: 'scholar', icon: '📖', check: (s) => discoveries(s) >= 35 },
   { id: 'legend', icon: '⭐', check: (s) => s.player.level >= 15 },
+  { id: 'event_hunter', icon: '✨', check: (s) => s.stats.eventsDone >= 10 },
+  { id: 'memory_keeper', icon: '🔮', check: (s) => s.discoveries.memories.length >= 12 },
+  { id: 'master_angler', icon: '🐟', check: (s) => s.discoveries.fish.length >= 10 },
   { id: 'paradise', icon: '🌴', check: (s) => s.island.level >= 10 },
 ];
 

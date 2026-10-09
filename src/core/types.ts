@@ -2,6 +2,7 @@ export type ItemId =
   | 'wood' | 'stone' | 'crystal' | 'glow_berry' | 'veggie' | 'seed' | 'essence' | 'purifier'
   | 'minnow' | 'moonfish' | 'echo_koi' | 'tonic'
   | 'coral' | 'shell' | 'coconut'
+  | 'sunfish' | 'snowtrout' | 'rainbow_carp' | 'night_eel' | 'coral_snapper' | 'blossom_guppy' | 'maple_perch'
   | 'berry_pie' | 'fish_stew' | 'garden_salad' | 'coconut_curry';
 
 /** Timed boosts from cooked meals. */
@@ -41,7 +42,26 @@ export type EggState = 'hidden' | 'nest' | 'hatched' | 'sold' | 'temple';
 export type PipAbility = 'glow' | 'sense' | 'echo';
 export type PipMood = 'happy' | 'sad' | 'excited';
 export type QuestStatus = 'locked' | 'available' | 'active' | 'done';
-export type DiscoveryCategory = 'creatures' | 'plants' | 'relics' | 'places';
+export type DiscoveryCategory = 'creatures' | 'plants' | 'relics' | 'places' | 'fish' | 'memories';
+
+/** Surprise events that pop up around the island while you play. */
+export type EventKind = 'treasure' | 'star' | 'lost' | 'golden' | 'gloom' | 'merchant';
+
+export interface IslandEvent {
+  id: number;
+  kind: EventKind;
+  x: number;
+  y: number;
+  /** Seconds of play left before it fades away. */
+  left: number;
+  /** Lost item: first find it, then bring it back to its owner. */
+  stage?: 'find' | 'return';
+  npc?: NpcId;
+  /** Gloom outbreak: creatures still to calm. */
+  count?: number;
+  /** Merchant: offers already bought. */
+  bought?: number[];
+}
 export type Ending = 'heal' | 'seal';
 
 /** Growth stage of a world node (tree, rock, bush, grove spot, crystal). */
@@ -139,6 +159,11 @@ export interface GameState {
     /** Decoration types that already gave their one-time Harmony. */
     decorSeen: DecorId[];
     boatRepaired: boolean;
+    event: IslandEvent | null;
+    /** Seconds of play on the island until the next surprise event. */
+    nextEventIn: number;
+    /** Real time of the last nap that made plants grow. */
+    lastNap: string | null;
     reefHealed: string[];
     minigames: { seekWins: number; raceWins: number; rewardDay: Partial<Record<MinigameKind, number>> };
   };
@@ -167,7 +192,7 @@ export interface GameState {
   discoveries: Record<DiscoveryCategory, string[]>;
   stats: {
     sessions: number; playSeconds: number; questsDone: number; worldChanges: number; errors: number; defeats: number;
-    mealsCooked: number; photos: number; weatherSeen: WeatherKind[];
+    mealsCooked: number; photos: number; weatherSeen: WeatherKind[]; eventsDone: number;
   };
 }
 

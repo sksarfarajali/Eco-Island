@@ -15,8 +15,9 @@ import {
   ISLAND_HARMONY_LEVELS,
   LOGIN_REWARDS,
   MAX_GATHER_YIELD,
-  MINUTES_PER_DAY,
   MINUTES_PER_SECOND,
+  NAP_COOLDOWN_MINUTES,
+  NAP_GROWTH_MINUTES,
   PLAYER_XP_LEVELS,
   REEF_COST,
   SEASON_DAYS,
@@ -36,11 +37,12 @@ import {
   SEASONS,
   type QuestObjective,
 } from './content';
-import { DAILY_BONUS, DAILY_POOL, dateKey, dayBefore, pickDaily } from './daily';
+import { DAILY_BONUS, DAILY_POOL, calendarDay, dateKey, dayBefore, pickDaily } from './daily';
+import { EVENT_GAP, EVENT_ICONS, EVENT_SECONDS, OUTBREAK_SIZE, merchantOffers } from './surprises';
 import { Emitter } from './events';
 import { processGrowth, type GrowthSummary } from './growth';
 import { t } from './i18n';
-import { DECOR_SLOTS, NODE_BY_ID, NODES, PLOTS, POI } from './layout';
+import { DECOR_SLOTS, EVENT_SPOTS, MEMORY_SHARDS, MERCHANT_SPOT, NODE_BY_ID, NODES, PLOTS, POI } from './layout';
 import { dueRules, type WorldRule } from './rules';
 import type {
   AreaId,
@@ -50,6 +52,8 @@ import type {
   DailyKind,
   DecorId,
   DiscoveryCategory,
+  EventKind,
+  IslandEvent,
   EggChoice,
   Ending,
   GameState,
@@ -67,7 +71,7 @@ export type SfxName =
   | 'collect' | 'chop' | 'mine' | 'success' | 'build' | 'error' | 'coin' | 'plant' | 'levelup' | 'magic' | 'splash'
   | 'hit' | 'hurt' | 'swing' | 'dodge' | 'block' | 'bite' | 'door'
   | 'click' | 'step_grass' | 'step_sand' | 'step_stone' | 'step_leaves'
-  | 'cook' | 'camera' | 'festival' | 'badge' | 'whistle' | 'giggle' | 'boat';
+  | 'cook' | 'camera' | 'festival' | 'badge' | 'whistle' | 'giggle' | 'boat' | 'event' | 'dig';
 
 export interface ToastEvent {
   text: string;
@@ -152,12 +156,15 @@ export class Game {
 
   // ---------------------------------------------------------------- time
 
+  /** Real calendar days since this island was started (day 1 = the first day). */
   get day(): number {
-    return Math.floor(this.state.world.minutes / MINUTES_PER_DAY) + 1;
+    return calendarDay(this.state.createdAt, this.clock());
   }
 
+  /** The real local time of day, in hours (14.5 = 14:30). */
   get hour(): number {
-    return (this.state.world.minutes % MINUTES_PER_DAY) / 60;
+    const now = this.clock();
+    return now.getHours() + now.getMinutes() / 60;
   }
 
   /** 0 in daylight, 1 in deep night, smooth at dusk and dawn. */
@@ -170,10 +177,8 @@ export class Game {
   }
 
   timeLabel(): string {
-    const h = Math.floor(this.hour);
-    // shown in calm 10-minute steps, so the HUD clock changes only every few seconds
-    const m = Math.floor((this.state.world.minutes % 60) / 10) * 10;
-    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+    const now = this.clock();
+    return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
   }
 
   /** Advance play time by real seconds. */
@@ -184,6 +189,7 @@ export class Game {
     if (this.tickBuffs(realSeconds)) changed = true;
     if (this.updateWeather()) changed = true;
     if (this.refreshDaily()) changed = true;
+    if (this.updateEvent(realSeconds)) changed = true;
     // Nova slowly recovers while resting in Whisper Village.
     const p = this.state.player;
     if (p.position.area === 'island' && p.position.zone === 'village' && p.health < this.maxHealth()) {
@@ -199,16 +205,25 @@ export class Game {
 
   private regenAcc = 0;
 
-  /** Sleep in a house until 06:00 the next morning. */
+  /**
+   * Take a nap at home: all hearts come back, and (at most every half hour) the plants
+   * and gardens grow a little while Nova rests.
+   */
   sleep(): ActionResult {
     if (this.state.buildings.house < 1) return { ok: false, message: t('msg.need_house') };
-    const minutesToday = this.state.world.minutes % MINUTES_PER_DAY;
-    const until = (MINUTES_PER_DAY - minutesToday + 6 * 60) % MINUTES_PER_DAY || MINUTES_PER_DAY;
-    const growth = processGrowth(this.state, until);
-    this.reportGrowth(growth);
-    this.updateWeather();
+    const w = this.state.world;
+    const now = this.clock().getTime();
+    const last = w.lastNap ? Date.parse(w.lastNap) : 0;
+    const grows = !last || now - last >= NAP_COOLDOWN_MINUTES * 60_000 || now < last;
     this.state.player.health = this.maxHealth();
-    this.toast(t('msg.slept', { day: this.day }), 'info', '🌙');
+    if (grows) {
+      w.lastNap = new Date(now).toISOString();
+      this.reportGrowth(processGrowth(this.state, NAP_GROWTH_MINUTES));
+      this.updateWeather();
+      this.toast(t('msg.napped'), 'info', '😴');
+    } else {
+      this.toast(t('msg.rested'), 'info', '❤️');
+    }
     this.changed();
     return { ok: true };
   }
@@ -851,6 +866,11 @@ export class Game {
       lines.push(t(`${npc}.intro`));
     }
     info.trust = Math.min(100, info.trust + 1);
+    const ev = s.world.event;
+    if (ev?.kind === 'lost' && ev.stage === 'return' && ev.npc === npc) {
+      lines.push(this.returnLost());
+      return { npc, speaker: t(`npc.${npc}`), lines };
+    }
     const offer = this.questsOfferedBy(npc)[0];
     if (offer) {
       lines.push(t(`quest.${offer}.offer`));
@@ -931,6 +951,8 @@ export class Game {
     if (s.world.weather.kind !== 'clear') options.push(t(`pip.weather_${s.world.weather.kind}`));
     if (s.world.boatRepaired && !s.discoveries.places.includes('coral_isle')) options.push(t('pip.sail_hint'));
     if (s.daily.tasks.some((d) => !d.done)) options.push(t('pip.daily_hint'));
+    if (s.world.event) options.push(t(`event.${s.world.event.kind}_pip`));
+    if (s.discoveries.memories.length < 12) options.push(t('pip.memory_hint'));
     if (!options.length) options.push(t('pip.generic_1'), t('pip.generic_2'));
     return options[Math.floor(this.rng() * options.length)];
   }
@@ -1078,7 +1100,11 @@ export class Game {
     const bright = s.island.lakeRestored && s.island.corruption.lake === 0;
     // the reef waters around Coral Isle are rich in fish
     const isle = s.player.position.area === 'isle';
-    const fish: ItemId = (bright || isle) && roll < (isle ? 0.1 : 0.06) ? 'echo_koi' : (bright || isle) && roll < 0.5 ? 'moonfish' : 'minnow';
+    let fish: ItemId = (bright || isle) && roll < (isle ? 0.1 : 0.06) ? 'echo_koi' : (bright || isle) && roll < 0.5 ? 'moonfish' : 'minnow';
+    // special fish bite only in the right season, weather, time or place
+    const special = this.specialFish();
+    if (special.length && fish !== 'echo_koi' && this.rng() < 0.35) fish = special[Math.floor(this.rng() * special.length)];
+    this.discover('fish', fish);
     this.give(fish, 1);
     s.world.fishCaught++;
     this.addXp(3);
@@ -1098,6 +1124,21 @@ export class Game {
     }
     this.changed();
     return fish;
+  }
+
+  /** The special fish that can bite right now. */
+  specialFish(): ItemId[] {
+    const out: ItemId[] = [];
+    const season = this.season();
+    const dark = this.darkness();
+    if (season === 'spring') out.push('blossom_guppy');
+    if (season === 'summer' && dark < 0.5) out.push('sunfish');
+    if (season === 'autumn') out.push('maple_perch');
+    if (season === 'winter') out.push('snowtrout');
+    if (this.weather() === 'rain') out.push('rainbow_carp');
+    if (dark > 0.6) out.push('night_eel');
+    if (this.state.player.position.area === 'isle') out.push('coral_snapper');
+    return out;
   }
 
   // ---------------------------------------------------------------- crafting & evolution
@@ -1592,6 +1633,188 @@ export class Game {
     this.runRules();
     this.changed();
     return { ok: true, message: t('msg.reef_healed', { n: w.reefHealed.length }) };
+  }
+
+  // ---------------------------------------------------------------- surprise events
+
+  private eventGap(): number {
+    return EVENT_GAP[0] + this.rng() * (EVENT_GAP[1] - EVENT_GAP[0]);
+  }
+
+  private updateEvent(seconds: number): boolean {
+    const w = this.state.world;
+    if (w.event) {
+      w.event.left -= seconds;
+      if (w.event.left > 0) return false;
+      this.toast(t('event.faded', { name: t(`event.${w.event.kind}`) }), 'info', '💨');
+      w.event = null;
+      w.nextEventIn = this.eventGap();
+      return true;
+    }
+    // events only start while Nova is on the main island
+    if (this.state.player.position.area !== 'island') return false;
+    w.nextEventIn -= seconds;
+    if (w.nextEventIn > 0) return false;
+    this.startEvent();
+    return true;
+  }
+
+  /** Start a surprise event (a random one unless a kind is given). */
+  startEvent(kind?: EventKind): IslandEvent {
+    const s = this.state;
+    const owners = (['rocco', 'luna', 'zed', 'tilly'] as NpcId[]).filter((n) => s.npcs[n].present);
+    if (!kind) {
+      const options: EventKind[] = ['treasure', 'golden', 'merchant', 'treasure'];
+      if (this.darkness() > 0.5) options.push('star', 'star');
+      if (owners.length) options.push('lost', 'lost');
+      if (s.player.level >= 2) options.push('gloom');
+      kind = options[Math.floor(this.rng() * options.length)];
+    }
+    const spot = kind === 'merchant' ? MERCHANT_SPOT : EVENT_SPOTS[Math.floor(this.rng() * EVENT_SPOTS.length)];
+    const ev: IslandEvent = { id: Math.floor(this.rng() * 1e9), kind, x: spot.x, y: spot.y, left: EVENT_SECONDS[kind] };
+    if (kind === 'lost') {
+      ev.stage = 'find';
+      ev.npc = owners.length ? owners[Math.floor(this.rng() * owners.length)] : 'rocco';
+    }
+    if (kind === 'gloom') ev.count = OUTBREAK_SIZE;
+    if (kind === 'merchant') ev.bought = [];
+    s.world.event = ev;
+    this.toast(t(`event.${kind}_start`, { npc: ev.npc ? t(`npc.${ev.npc}`) : '' }), 'world', EVENT_ICONS[kind]);
+    this.events.emit('pipSay', { text: t(`event.${kind}_pip`) });
+    this.events.emit('sfx', 'event');
+    this.changed();
+    return ev;
+  }
+
+  /** Short HUD line for the running event. */
+  eventLabel(): string | null {
+    const ev = this.state.world.event;
+    if (!ev) return null;
+    const min = Math.floor(ev.left / 60);
+    const sec = String(Math.floor(ev.left % 60)).padStart(2, '0');
+    const name = ev.kind === 'lost' && ev.stage === 'return' ? t('event.lost_return_short', { npc: t(`npc.${ev.npc}`) }) : t(`event.${ev.kind}`);
+    return `${EVENT_ICONS[ev.kind]} ${name} · ${min}:${sec}`;
+  }
+
+  private finishEvent(message: string): ActionResult {
+    const w = this.state.world;
+    w.event = null;
+    w.nextEventIn = this.eventGap();
+    this.state.stats.eventsDone++;
+    this.events.emit('sfx', 'success');
+    this.toast(message, 'reward', '🎁');
+    this.changed();
+    return { ok: true };
+  }
+
+  private eventOf(kind: EventKind): IslandEvent | null {
+    const ev = this.state.world.event;
+    return ev && ev.kind === kind ? ev : null;
+  }
+
+  digTreasure(): ActionResult {
+    if (!this.eventOf('treasure')) return { ok: false };
+    const coins = 20 + Math.floor(this.rng() * 26);
+    const prizes: Partial<Record<ItemId, number>>[] = [{ crystal: 2 }, { essence: 2 }, { seed: 2 }, { shell: 3 }, { purifier: 1 }];
+    const prize = prizes[Math.floor(this.rng() * prizes.length)];
+    this.events.emit('sfx', 'dig');
+    this.addCoins(coins);
+    for (const [item, n] of Object.entries(prize) as [ItemId, number][]) this.give(item, n);
+    this.addXp(10);
+    const list = (Object.entries(prize) as [ItemId, number][]).map(([i, n]) => `${n} ${ITEMS[i].icon}`).join(' ');
+    return this.finishEvent(t('event.treasure_done', { coins, list }));
+  }
+
+  catchStar(): ActionResult {
+    if (!this.eventOf('star')) return { ok: false };
+    this.give('crystal', 2);
+    this.give('essence', 2);
+    this.addXp(15);
+    this.addHarmony(5);
+    return this.finishEvent(t('event.star_done'));
+  }
+
+  catchGolden(): ActionResult {
+    if (!this.eventOf('golden')) return { ok: false };
+    this.addCoins(40);
+    this.addXp(15);
+    this.addHarmony(5);
+    return this.finishEvent(t('event.golden_done'));
+  }
+
+  /** Pick up the lost item; it then has to be returned to its owner. */
+  pickLost(): ActionResult {
+    const ev = this.eventOf('lost');
+    if (!ev || ev.stage !== 'find') return { ok: false };
+    ev.stage = 'return';
+    ev.left = Math.max(ev.left, 180);
+    this.events.emit('sfx', 'collect');
+    this.toast(t('event.lost_found', { item: t(`event.lost_item.${ev.npc}`), npc: t(`npc.${ev.npc}`) }), 'quest', '🎒');
+    this.changed();
+    return { ok: true };
+  }
+
+  private returnLost(): string {
+    const ev = this.state.world.event!;
+    const npc = ev.npc!;
+    this.state.npcs[npc].trust = Math.min(100, this.state.npcs[npc].trust + 10);
+    this.addCoins(30);
+    this.addXp(15);
+    this.finishEvent(t('event.lost_done', { npc: t(`npc.${npc}`) }));
+    return t('event.lost_thanks', { item: t(`event.lost_item.${npc}`) });
+  }
+
+  /** One gloomling of an outbreak was calmed. */
+  outbreakCalmed(): void {
+    const ev = this.eventOf('gloom');
+    if (!ev) return;
+    ev.count = Math.max(0, (ev.count ?? 1) - 1);
+    if (ev.count > 0) {
+      this.changed();
+      return;
+    }
+    this.give('essence', 3);
+    this.addCoins(25);
+    this.addHarmony(8);
+    this.finishEvent(t('event.gloom_done'));
+  }
+
+  merchantOffers(): ReturnType<typeof merchantOffers> {
+    const ev = this.eventOf('merchant');
+    return ev ? merchantOffers(ev.id) : [];
+  }
+
+  buyOffer(i: number): ActionResult {
+    const ev = this.eventOf('merchant');
+    const offer = ev ? merchantOffers(ev.id)[i] : undefined;
+    if (!ev || !offer) return { ok: false };
+    if (ev.bought?.includes(i)) return { ok: false, message: t('event.merchant_sold_out') };
+    if (this.state.player.coins < offer.price) {
+      this.events.emit('sfx', 'error');
+      return { ok: false, message: t('msg.not_enough_coins', { n: offer.price - this.state.player.coins }) };
+    }
+    this.state.player.coins -= offer.price;
+    for (const [item, n] of Object.entries(offer.give ?? {}) as [ItemId, number][]) this.state.inventory[item] += n;
+    if (offer.decor) this.state.world.decorOwned[offer.decor] = (this.state.world.decorOwned[offer.decor] ?? 0) + 1;
+    (ev.bought ??= []).push(i);
+    this.events.emit('sfx', 'coin');
+    if (ev.bought.length === 1) this.state.stats.eventsDone++;
+    this.changed();
+    return { ok: true, message: t('event.merchant_thanks') };
+  }
+
+  // ---------------------------------------------------------------- memory shards
+
+  /** Touch a memory shard: the island remembers a piece of its story. */
+  collectMemory(id: string): Dialog | null {
+    if (!MEMORY_SHARDS.some((m) => m.id === id) || this.state.discoveries.memories.includes(id)) return null;
+    this.discover('memories', id);
+    this.addHarmony(4);
+    const found = this.state.discoveries.memories.length;
+    const lines = [t(`memory.${id}`), t('memory.count', { n: found, total: MEMORY_SHARDS.length })];
+    if (found === MEMORY_SHARDS.length) lines.push(t('memory.complete'));
+    this.changed();
+    return { npc: 'pip', speaker: 'Pip', lines };
   }
 
   // ---------------------------------------------------------------- world rules

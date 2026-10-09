@@ -14,6 +14,7 @@ import { TILE } from '../core/config';
 import { t } from '../core/i18n';
 import type { CreatureId } from '../core/types';
 import { REEF_COST } from '../core/config';
+import { MEMORY_SHARDS } from '../core/layout';
 import { makeAreaGround } from './art2';
 import { PlayScene, img, nameTag, type Blocker, type Enemy, type Interactable } from './PlayScene';
 
@@ -47,7 +48,10 @@ export class AreaScene extends PlayScene {
     this.cageGuards = 0;
     this.echoPlaying = false;
     this.marina = null;
+    this.shards = [];
   }
+
+  private shards: { id: string; sprite: Phaser.GameObjects.Image }[] = [];
 
   protected outdoor(): boolean {
     return this.area === 'highlands' || this.area === 'isle';
@@ -127,6 +131,14 @@ export class AreaScene extends PlayScene {
       if (key) this.views.push({ obj: o, sprite: img(this, o.x, o.y + 14, key).setDepth(o.ch === 'z' || o.ch === 'Y' ? -4000 : o.y + 14) });
       if (o.ch === 'g' || o.ch === 'w') this.maybeSpawn(o);
       if (o.ch === 'B' && !st.world.bossDefeated && st.quests.q_finale.status === 'active') this.spawnEnemy('hollow', o.x, o.y + 40);
+    }
+    // memory shards hidden in this area
+    for (const m of MEMORY_SHARDS.filter((x) => x.area === this.area)) {
+      const x = m.tx * TILE + TILE / 2;
+      const y = m.ty * TILE + TILE / 2;
+      const sprite = img(this, x, y + 12, 'memory_shard').setDepth(y + 12).setVisible(!st.discoveries.memories.includes(m.id));
+      if (!this.settings.reducedMotion) this.tweens.add({ targets: sprite, y: sprite.y - 5, duration: 1300, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
+      this.shards.push({ id: m.id, sprite });
     }
     // stone blocks (positions live in the save)
     st.world.temple.blocks.forEach(() => this.blockViews.push(img(this, 0, 0, 'stone_block')));
@@ -490,6 +502,17 @@ export class AreaScene extends PlayScene {
       });
     }
     for (const [id, c] of this.creatureViews) if (c.sprite.visible) list.push(this.creatureInteractable(id, c.sprite));
+    for (const sh of this.shards) {
+      if (!st.discoveries.memories.includes(sh.id)) {
+        list.push({ id: sh.id, x: sh.sprite.x, y: sh.sprite.y - 8, label: t('act.memory'), enabled: true, act: () => {
+          const d = g.collectMemory(sh.id);
+          if (!d) return;
+          sh.sprite.setVisible(false);
+          this.burst(sh.sprite.x, sh.sprite.y - 16, 0xc9b3ff, 16);
+          this.hooks.dialog(d);
+        } });
+      }
+    }
     if (this.marina) {
       const o = this.marina.obj;
       list.push({ id: 'npc_marina', x: o.x, y: o.y, label: t('act.talk', { name: t('npc.marina') }), enabled: true, act: () => this.hooks.dialog(g.talk('marina')) });
@@ -538,6 +561,7 @@ export class AreaScene extends PlayScene {
 
   protected worldLights(light: (x: number, y: number, r: number) => void): void {
     const st = this.game_.state;
+    for (const sh of this.shards) if (sh.sprite.visible) light(sh.sprite.x, sh.sprite.y - 14, 50);
     for (const v of this.views) {
       const o = v.obj;
       if (o.ch === 'c' && st.world.nodes[o.id]?.stage === 'full') light(o.x, o.y, 56);

@@ -38,6 +38,18 @@ export function dateKey(d: Date): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
+/**
+ * The island's day number: real calendar days since the save was started (day 1 = the first day).
+ * It follows the real calendar in the player's time zone, however long they play or stay away.
+ */
+export function calendarDay(createdAt: string, now: Date): number {
+  const start = new Date(createdAt);
+  if (Number.isNaN(start.getTime())) return 1;
+  const a = Date.UTC(start.getFullYear(), start.getMonth(), start.getDate());
+  const b = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+  return Math.max(1, Math.round((b - a) / 86_400_000) + 1);
+}
+
 /** The calendar day before `key` (YYYY-MM-DD). */
 export function dayBefore(key: string): string {
   const [y, m, d] = key.split('-').map(Number);
