@@ -1,5 +1,7 @@
 # Echo Island — The World That Remembers
 
+![Echo Island: Nova, Pip and Glowfox in the decorated Whisper Village](public/og-image.png)
+
 Echo Island is a colorful exploration, discovery, building and creature-companion game in which the world remembers the player's actions. The core product promise is: “Every choice you make changes the island.” It runs entirely on the client: offline-first, no accounts, no servers, near-zero infrastructure cost.
 
 Product documents: [`docs/Echo_Island_PRD.md`](docs/Echo_Island_PRD.md) and [`docs/Echo_Island_App_Flow.md`](docs/Echo_Island_App_Flow.md) (Word versions alongside). Packaging: [`docs/PACKAGING.md`](docs/PACKAGING.md).
